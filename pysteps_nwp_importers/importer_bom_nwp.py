@@ -50,10 +50,6 @@ The metadata contains the following key-value pairs:
 |   zerovalue      | the value assigned to the no rain pixels with the same   |
 |                  | unit, transformation and accutime of the data.           |
 +------------------+----------------------------------------------------------+
-|   zr_a           | the Z-R constant a in Z = a*R**b                         |
-+------------------+----------------------------------------------------------+
-|   zr_b           | the Z-R exponent b in Z = a*R**b                         |
-+------------------+----------------------------------------------------------+
 
 """
 
