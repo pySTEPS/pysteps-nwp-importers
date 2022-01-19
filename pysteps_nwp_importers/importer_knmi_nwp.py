@@ -143,7 +143,6 @@ def _import_knmi_nwp_data_xr(filename, **kwargs):
         combine="nested",
         concat_dim=varname_time,
         chunks=chunks,
-        lock=False,
         parallel=True,
     )
 
