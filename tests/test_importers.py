@@ -1,4 +1,5 @@
 from collections import namedtuple, defaultdict
+from pathlib import Path
 
 import pytest
 
@@ -15,10 +16,12 @@ ImportedData = namedtuple(
 TOLERANCE = defaultdict(lambda: 0.0001)
 TOLERANCE["threshold"] = 0.01
 
+DATA_DIR = Path(__file__).parent / "data"
+
 
 def rmi_imported_data():
     rmi_precip_data, _, metadata_nwp = import_rmi_nwp(
-        "data/rmi/ao13_2021070412_native_5min.nc"
+        str(DATA_DIR / "rmi/ao13_2021070412_native_5min.nc")
     )
     expected_proj = (
         "+proj=lcc +lon_0=4.55 +lat_1=50.8 +lat_2=50.8 "
@@ -52,7 +55,7 @@ def rmi_imported_data():
 
 def bom_imported_data():
     precip_data, _, metadata_nwp = import_bom_nwp(
-        "data/bom/20201031_0000_regrid_short.nc"
+        str(DATA_DIR / "bom/20201031_0000_regrid_short.nc")
     )
     expected_proj = (
         "+proj=aea  +lon_0=153.240 +lat_0=-27.718 +lat_1=-26.200 +lat_2=-29.300"
@@ -86,7 +89,7 @@ def bom_imported_data():
 
 def kmni_imported_data():
     precip_data, _, metadata_nwp = import_knmi_nwp(
-        "data/knmi/20180905_0600_Pforecast_Harmonie.nc"
+        str(DATA_DIR / "knmi/20180905_0600_Pforecast_Harmonie.nc")
     )
     expected_proj = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
     expected_shape = (49, 300, 300)
