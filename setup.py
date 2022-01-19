@@ -1,16 +1,10 @@
-# -*- coding: utf-8 -*-
-
-"""The setup script."""
-
 from setuptools import setup, find_packages
 
 with open("README.rst") as readme_file:
     readme = readme_file.read()
 
-# Add the plugin dependencies here
 requirements = ["numpy", "xarray", "dask", "netCDF4"]
 
-# Add the packages needed to build the package.
 setup_requirements = ["pytest-runner"]
 
 test_requirements = ["pytest>=3"]
