@@ -6,6 +6,7 @@ import pytest
 from pysteps_nwp_importers.importer_bom_nwp import import_bom_nwp
 from pysteps_nwp_importers.importer_knmi_nwp import import_knmi_nwp
 from pysteps_nwp_importers.importer_rmi_nwp import import_rmi_nwp
+from pysteps_nwp_importers.tests.download_test_data import download_test_data
 
 pytest.importorskip("netCDF4")
 
@@ -16,6 +17,7 @@ ImportedData = namedtuple(
 TOLERANCE = defaultdict(lambda: 0.0001)
 TOLERANCE["threshold"] = 0.01
 
+download_test_data()
 DATA_DIR = Path(__file__).parent / "data"
 
 

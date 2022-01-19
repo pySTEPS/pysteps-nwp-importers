@@ -39,10 +39,6 @@ jobs:
         working-directory: ${{github.workspace}}
         run: pip install .
 
-      - name: Download test data
-        working-directory: ${{github.workspace}}/ci
-        run: python download_test_data.py
-
       - name: Check imports
         run: |
           python --version
