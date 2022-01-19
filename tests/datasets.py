@@ -20,6 +20,7 @@ import sys
 import time
 from distutils.dir_util import copy_tree
 from logging.handlers import RotatingFileHandler
+from tempfile import TemporaryDirectory
 from urllib import request
 from zipfile import ZipFile
 

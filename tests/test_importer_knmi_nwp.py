@@ -18,9 +18,10 @@ def test_importers_discovery():
     """
     new_importers = ["import_knmi_nwp"]
     for importer in new_importers:
-        assert importer.replace("import_", "") in interface._importer_methods 
+        assert importer.replace("import_", "") in interface._importer_methods
 
-root_path = pysteps.rcparams.data_sources["knmi_nwp"]["root_path"]
+
+root_path = "./nwp/knmi"
 rel_path = os.path.join("2018", "09", "05")
 filename = os.path.join(root_path, rel_path, "20180905_0600_Pforecast_Harmonie.nc")
 importer = pysteps.io.get_method("knmi_nwp", "importer")
@@ -28,9 +29,11 @@ precip_nwp, _, metadata_nwp = importer(filename)
 
 expected_proj = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
+
 def test_io_import_knmi_nwp_shape():
     """Test the KNMI NWP importer shape."""
     assert precip_nwp.shape == (49, 300, 300)
+
 
 test_attrs_knmi = [
     ("projection", expected_proj, None),

@@ -18,9 +18,10 @@ def test_importers_discovery():
     """
     new_importers = ["import_bom_nwp"]
     for importer in new_importers:
-        assert importer.replace("import_", "") in interface._importer_methods 
+        assert importer.replace("import_", "") in interface._importer_methods
 
-root_path = pysteps.rcparams.data_sources["bom_nwp"]["root_path"]
+
+root_path = "./nwp/bom"
 rel_path = os.path.join("2020", "10", "31")
 filename = os.path.join(root_path, rel_path, "20201031_0000_regrid_short.nc")
 importer = pysteps.io.get_method("bom_nwp", "importer")
@@ -28,9 +29,11 @@ precip_nwp, _, metadata_nwp = importer(filename)
 
 expected_proj = "+proj=aea  +lon_0=153.240 +lat_0=-27.718 +lat_1=-26.200 +lat_2=-29.300"
 
+
 def test_io_import_bom_nwp_shape():
     """Test the BoM NWP importer shape."""
     assert precip_nwp.shape == (144, 512, 512)
+
 
 test_attrs_bom = [
     ("projection", expected_proj, None),
@@ -48,6 +51,7 @@ test_attrs_bom = [
     ("y1", -127750.0, 0.1),
     ("y2", 127750.0, 0.1),
 ]
+
 
 @pytest.mark.parametrize("variable, expected, tolerance", test_attrs_bom)
 def test_io_import_bom_nwp(variable, expected, tolerance):
