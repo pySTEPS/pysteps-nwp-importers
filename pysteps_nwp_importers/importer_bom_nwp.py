@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 pysteps_nwp_importers.importer_bom_nwp
 ====================
@@ -134,10 +135,11 @@ def import_bom_nwp(filename, **kwargs):
         precipitation.attrs.update({"standard_name": "precipitation_amount"})
     else:
         precipitation = ds[varname]
-    
+
     quality = None
 
     return precipitation.values, quality, metadata
+
 
 def _import_bom_nwp_data_xr(filename, **kwargs):
 
@@ -231,7 +233,7 @@ def _import_bom_nwp_geodata_xr(
         y2=ymax,
         accutime=time_step,
     )
-    
+
     return metadata
 
 

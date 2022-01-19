@@ -7,7 +7,10 @@ watchdog
 tox
 coverage
 Sphinx
+pytest
+pytest-runner
 numpy
 xarray
 netCDF4
 pysteps
+pre-commit

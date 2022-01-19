@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 pysteps_nwp_importers.importer_rmi_nwp
 ====================
@@ -219,7 +220,7 @@ def _import_rmi_nwp_geodata_xr(
         y2=ymax,
         accutime=time_step,
     )
-    
+
     return metadata
 
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 pysteps_nwp_importers.importer_knmi_nwp
 ====================
@@ -189,7 +190,7 @@ def _import_knmi_nwp_geodata_xr(
     da_rainfall = ds_in[varname].isel({varname_time: 0})
     # Set values below 0.0 to 0.0
     da_rainfall = da_rainfall.where(da_rainfall >= 0.0, 0.0)
-    
+
     # Fill the metadata dictionary
     metadata = dict(
         xpixelsize=xpixelsize.values,
@@ -208,7 +209,7 @@ def _import_knmi_nwp_geodata_xr(
         y2=ymax,
         accutime=time_step,
     )
-    
+
     return metadata
 
 
