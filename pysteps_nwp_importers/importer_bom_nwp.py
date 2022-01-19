@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 pysteps_nwp_importers.importer_bom_nwp
 ====================
@@ -58,8 +57,7 @@ import numpy as np
 
 import xarray as xr
 
-from pysteps.decorators import postprocess_import
-from pysteps.exceptions import MissingOptionalDependency
+from pysteps_nwp_importers.exceptions import MissingOptionalDependency
 
 try:
     import netCDF4
@@ -76,7 +74,6 @@ except ImportError:
     DASK_IMPORTED = False
 
 
-@postprocess_import()
 def import_bom_nwp(filename, **kwargs):
     """Import a NetCDF with NWP rainfall forecasts regridded to a BoM Rainfields3
     using xarray.
@@ -142,7 +139,6 @@ def import_bom_nwp(filename, **kwargs):
 
 
 def _import_bom_nwp_data_xr(filename, **kwargs):
-
     varname_time = kwargs.get("varname_time", "time")
     chunks = kwargs.get("chunks", {varname_time: 1})
 
@@ -162,7 +158,6 @@ def _import_bom_nwp_geodata_xr(
     ds_in,
     **kwargs,
 ):
-
     varname = kwargs.get("varname", "accum_prcp")
     varname_time = kwargs.get("varname_time", "time")
 

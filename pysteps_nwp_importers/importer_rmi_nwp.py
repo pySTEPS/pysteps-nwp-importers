@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 pysteps_nwp_importers.importer_rmi_nwp
 ====================
@@ -58,8 +57,7 @@ import numpy as np
 
 import xarray as xr
 
-from pysteps.decorators import postprocess_import
-from pysteps.exceptions import MissingOptionalDependency
+from pysteps_nwp_importers.exceptions import MissingOptionalDependency
 
 try:
     import netCDF4
@@ -76,7 +74,6 @@ except ImportError:
     DASK_IMPORTED = False
 
 
-@postprocess_import()
 def import_rmi_nwp(filename, **kwargs):
     """Import a NetCDF with NWP rainfall forecasts from RMI using xarray.
 
