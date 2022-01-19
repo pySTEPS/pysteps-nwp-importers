@@ -41,17 +41,13 @@ jobs:
         run: pip install .
 
       - name: Download test data
-        env:
-          PYSTEPS_DATA_PATH: ${{github.workspace}}/pysteps_data
         working-directory: ${{github.workspace}}/ci
         run: python download_test_data.py
 
       - name: Check imports
-        working-directory: ${{github.workspace}}/pysteps_data
         run: |
           python --version
           python -c "import pysteps_nwp_importers"
 
       - name: Run tests
-        working-directory: ${{github.workspace}}/pysteps_data
         run: pytest --pyargs pysteps_nwp_importers
