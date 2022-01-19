@@ -1,0 +1,22 @@
+# pysteps development environment
+name: test_environment
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.7
+  - pip
+  - mamba
+  # Minimal dependencies
+  - numpy
+  - netCDF4
+  - pyproj
+  - scipy
+  # Optional dependencies
+  - dask
+  - h5py
+  - PyWavelets
+  - xarray
+  # Test dependencies
+  - pytest
+  - pytest-cov
