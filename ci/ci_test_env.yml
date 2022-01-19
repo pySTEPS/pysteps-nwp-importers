@@ -12,6 +12,7 @@ dependencies:
   - netCDF4
   - pyproj
   - scipy
+  - pysteps
   # Optional dependencies
   - dask
   - h5py

@@ -35,8 +35,7 @@ jobs:
           environment-name: test_environment
           extra-specs: python=${{ matrix.python-version }}
 
-      - name: Install pysteps
-        if: matrix.os != 'macos-latest'
+      - name: Install pysteps-nwp-importers
         working-directory: ${{github.workspace}}
         run: pip install .
 
