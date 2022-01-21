@@ -113,6 +113,8 @@ def import_rmi_nwp(filename, **kwargs):
     varname_time = kwargs.get("varname_time", "time")
     ds = ds.rename({varname_time: "t"})
     varname_time = "t"
+    times_nwp = ds["t"].values
+    metadata["time_stamps"] = times_nwp
 
     # if data variable is named accum_prcp
     # it is assumed that NWP rainfall data is accumulated
