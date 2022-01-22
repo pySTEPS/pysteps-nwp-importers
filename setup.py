@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 with open("README.rst") as readme_file:
     readme = readme_file.read()
 
-requirements = ["numpy", "xarray", "dask", "netCDF4"]
+requirements = ["numpy", "xarray", "dask", "netCDF4", "pysteps>=1.4,<2.0"]
 
 setup_requirements = ["pytest-runner"]
 
