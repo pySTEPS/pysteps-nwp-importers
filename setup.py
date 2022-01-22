@@ -18,6 +18,7 @@ setup(
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",        
     ],
     description="Pysteps plugin to import a variety of NWP rainfall forecasts",
     install_requires=requirements,
