@@ -28,7 +28,7 @@ From sources
 The latest development version of pysteps_nwp_importers can be installed using
 pip by running in a terminal::
 
-    pip install git+https://github.com/YOUR_GITHUB_USERNAME/pysteps_nwp_importers
+    pip install git+https://github.com/pySTEPS/pysteps-nwp-importers
 
 Or, from a local copy of the repo::
 
