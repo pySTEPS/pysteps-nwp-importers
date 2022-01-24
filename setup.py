@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 with open("README.rst") as readme_file:
     readme = readme_file.read()
 
-requirements = ["numpy", "xarray", "dask", "netCDF4"]
+requirements = ["numpy", "xarray", "dask", "netCDF4", "pysteps>=1.4,<2.0"]
 
 setup_requirements = ["pytest-runner"]
 
@@ -18,6 +18,7 @@ setup(
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",        
     ],
     description="Pysteps plugin to import a variety of NWP rainfall forecasts",
     install_requires=requirements,

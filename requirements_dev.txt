@@ -12,5 +12,5 @@ pytest-runner
 numpy
 xarray
 netCDF4
-pysteps
+pysteps>=1.4,<2.0
 pre-commit
