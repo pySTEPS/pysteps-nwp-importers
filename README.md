@@ -23,7 +23,7 @@ Installation instructions
 =========================
 
 Download the plugin here. Then, you can install the plugin, after pysteps has been installed, with:
-	cd pysteps_nwp_importers
+	cd pysteps-nwp-importers
 	pip install .
 
 Test the plugin
