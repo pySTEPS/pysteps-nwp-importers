@@ -32,9 +32,9 @@ pip by running in a terminal::
 
 Or, from a local copy of the repo::
 
-    git clone https://github.com/YOUR_GITHUB_USERNAME/pysteps-nwp-importers
+    git clone https://github.com/pySTEPS/pysteps-nwp-importers
     cd pysteps-nwp-importers
     pip install .
 
-The above commands install the latest version of the **master** branch,
+The above commands install the latest version of the **main** branch,
 which is continuously under development.
