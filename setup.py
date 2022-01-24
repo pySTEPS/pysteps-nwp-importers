@@ -10,15 +10,14 @@ setup_requirements = ["pytest-runner"]
 test_requirements = ["pytest>=3"]
 
 setup(
-    author="Ruben Imhoff",
-    author_email="ruben.imhoff@deltares.nl",
+    author="pySTEPS",
     python_requires=">=3.7",
     classifiers=[
         "License :: OSI Approved :: BSD License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",        
+        "Programming Language :: Python :: 3.9",
     ],
     description="Pysteps plugin to import a variety of NWP rainfall forecasts",
     install_requires=requirements,
@@ -38,6 +37,6 @@ setup(
             "import_rmi_nwp=pysteps_nwp_importers.importer_rmi_nwp:import_rmi_nwp",
         ]
     },
-    version="1.6",
+    version="0.1",
     zip_safe=False,
 )
