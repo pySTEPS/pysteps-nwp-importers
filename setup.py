@@ -10,7 +10,7 @@ setup_requirements = ["pytest-runner"]
 test_requirements = ["pytest>=3"]
 
 setup(
-    author="pySTEPS",
+    author="pySTEPS developers",
     python_requires=">=3.7",
     classifiers=[
         "License :: OSI Approved :: BSD License",

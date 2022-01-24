@@ -21,7 +21,7 @@ NWP rainfall forecast importer using pysteps utilities. This plugin currently pr
 Installation
 ============
 
-The easiest way to install the plugin is with pip:
+The easiest way to install the plugin is with pip::
 
 	pip install pysteps-nwp-importers
 
@@ -30,7 +30,7 @@ Test the plugin
 
 This plugin comes with a tester, which can also be used to test whether the plugin is correctly hooked up to pysteps.
 
-Install pytest and run the tests with
+Install pytest and run the tests with::
 
 	pip install pytest
 	pytest -v --tb=line
