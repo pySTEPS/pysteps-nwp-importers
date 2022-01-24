@@ -3,9 +3,11 @@ pysteps-nwp-importers
 
 Pysteps plugin to import a variety of NWP rainfall forecasts. This plugin was created with Cookiecutter and makes the NWP importers findable for the Pysteps importer functionality after installation.
 
+
 License
 =======
 * BSD license
+
 
 Documentation
 =============
@@ -15,10 +17,11 @@ NWP rainfall forecast importer using pysteps utilities. This plugin currently pr
 - BoM NWP forecasts
 - RMI NWP forecasts
 
-Installation instructions
-=========================
 
-You can install the plugin with pip:
+Installation
+============
+
+The easiest way to install the plugin is with pip:
 
 	pip install pysteps-nwp-importers
 
@@ -35,8 +38,10 @@ Install pytest and run the tests with
 Credits
 =======
 
-This package was created with [Cookiecutter](https://github.com/audreyr/cookiecutter) and the [cookiecutter-pysteps-plugin](https://github.com/audreyfeldroy/cookiecutter-pypackage) project template. 
+This package was created with Cookiecutter_ and the `cookiecutter-pysteps-plugin`_ project template. 
+The `cookiecutter-pysteps-plugin`_ template was adapted from the cookiecutter-pypackage_
+template.
 
-Since this plugin template is based in the cookiecutter-pypackage template, it is encouraged to leave the following credits to acknowledge Audrey Greenfeld's work.
-
-The [cookiecutter-pysteps-plugin](https://github.com/audreyfeldroy/cookiecutter-pypackage) template was adapted from the [cookiecutter-pypackage](https://github.com/audreyfeldroy/cookiecutter-pypackage) template.
+.. _cookiecutter-pypackage: https://github.com/audreyfeldroy/cookiecutter-pypackage
+.. _Cookiecutter: https://github.com/audreyr/cookiecutter
+.. _`cookiecutter-pysteps-plugin`: https://github.com/pysteps/cookiecutter-pysteps-plugin

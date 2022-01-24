@@ -1,13 +1,8 @@
 .. highlight:: shell
 
-.. IMPORTANT: Update this file with your recommended installation instructions,
-   As an example, two different installation instructions are shown next.
-
 ============
 Installation
 ============
-
-.. The following installation instructions are recommended if the plugin is uploaded to pypi.
 
 Stable release
 --------------
@@ -18,9 +13,6 @@ To install pysteps-nwp-importers, run this command in your terminal:
 
     $ pip install pysteps-nwp-importers
 
-
-.. The following installation instructions are recommended if the plugin needs to be installed
-   from its sources (e.g. directly from the github repo).
 
 From sources
 ------------
