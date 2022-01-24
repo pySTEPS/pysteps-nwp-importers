@@ -35,6 +35,20 @@ jobs:
           environment-name: test_environment
           extra-specs: python=${{ matrix.python-version }}
 
+      - name: Pre-install pysteps (MacOS only)
+        if: matrix.os == 'macos-latest'
+        working-directory: ${{github.workspace}}
+        env:
+          CC: gcc-9
+          CXX: g++-9
+          CXX1X: g++-9
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          brew update-reset
+          brew update
+          gcc-9 --version || brew install gcc@9
+          pip install "pysteps>=1.4,<2.0"
+
       - name: Install pysteps-nwp-importers
         working-directory: ${{github.workspace}}
         run: pip install .
