@@ -4,19 +4,6 @@
 Installation
 ============
 
-Stable release
---------------
-
-To install pysteps-nwp-importers, run this command in your terminal:
-
-.. code-block:: console
-
-    $ pip install pysteps-nwp-importers
-
-
-From sources
-------------
-
 The latest development version of pysteps_nwp_importers can be installed using
 pip by running in a terminal::
 

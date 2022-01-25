@@ -13,17 +13,19 @@ Documentation
 =============
 
 NWP rainfall forecast importer using pysteps utilities. This plugin currently provides importers for:
-- KNMI HARMONIE NWP forecasts
-- BoM NWP forecasts
-- RMI NWP forecasts
+
+* KNMI HARMONIE NWP forecasts
+* BoM NWP forecasts
+* RMI NWP forecasts
 
 
 Installation
 ============
 
-The easiest way to install the plugin is with pip::
+The latest development version of pysteps_nwp_importers can be installed using
+pip by running in a terminal::
 
-	pip install pysteps-nwp-importers
+    pip install git+https://github.com/pySTEPS/pysteps-nwp-importers
 
 Test the plugin
 ===============
