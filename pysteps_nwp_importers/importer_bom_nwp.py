@@ -107,7 +107,7 @@ def import_bom_nwp(filename, **kwargs):
             "products but it is not installed"
         )
 
-    ds = _import_bom_nwp_data_xr(filename, **kwargs)
+    ds = xr.open_dataset(filename)
     metadata = _import_bom_nwp_geodata_xr(ds, **kwargs)
 
     # rename varname_time (def: time) to t
@@ -125,7 +125,7 @@ def import_bom_nwp(filename, **kwargs):
         print("Rainfall values are accumulated. Disaggregating by time step")
         accum_prcp = ds[varname]
         precipitation = accum_prcp - accum_prcp.shift({varname_time: 1})
-        precipitation = precipitation.dropna(varname_time, "all")
+        precipitation = precipitation.dropna(varname_time, how="all")
         # update/copy attributes
         precipitation.name = "precipitation"
         # copy attributes
@@ -138,22 +138,6 @@ def import_bom_nwp(filename, **kwargs):
     quality = None
 
     return precipitation.values, quality, metadata
-
-
-def _import_bom_nwp_data_xr(filename, **kwargs):
-    varname_time = kwargs.get("varname_time", "time")
-    chunks = kwargs.get("chunks", {varname_time: 1})
-
-    ds_rainfall = xr.open_mfdataset(
-        filename,
-        combine="nested",
-        concat_dim=varname_time,
-        chunks=chunks,
-        lock=False,
-        parallel=True,
-    )
-
-    return ds_rainfall
 
 
 def _import_bom_nwp_geodata_xr(

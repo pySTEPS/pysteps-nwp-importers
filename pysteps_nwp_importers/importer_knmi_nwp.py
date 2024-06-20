@@ -107,7 +107,7 @@ def import_knmi_nwp(filename, **kwargs):
             "products but it is not installed"
         )
 
-    ds = _import_knmi_nwp_data_xr(filename, **kwargs)
+    ds = xr.open_dataset(filename)
     metadata = _import_knmi_nwp_geodata_xr(ds, **kwargs)
 
     # rename varname_time (def: time) to t
@@ -133,22 +133,6 @@ def import_knmi_nwp(filename, **kwargs):
     quality = None
 
     return precipitation.values, quality, metadata
-
-
-def _import_knmi_nwp_data_xr(filename, **kwargs):
-
-    varname_time = kwargs.get("varname_time", "time")
-    chunks = kwargs.get("chunks", {varname_time: 1})
-
-    ds_rainfall = xr.open_mfdataset(
-        filename,
-        combine="nested",
-        concat_dim=varname_time,
-        chunks=chunks,
-        parallel=True,
-    )
-
-    return ds_rainfall
 
 
 def _import_knmi_nwp_geodata_xr(
