@@ -107,7 +107,7 @@ def import_bom_nwp(filename, **kwargs):
             "products but it is not installed"
         )
 
-    ds = xr.open_dataset(filename)
+    ds = _import_bom_nwp_data_xr(filename)
     metadata = _import_bom_nwp_geodata_xr(ds, **kwargs)
 
     # rename varname_time (def: time) to t
@@ -138,6 +138,10 @@ def import_bom_nwp(filename, **kwargs):
     quality = None
 
     return precipitation.values, quality, metadata
+
+
+def _import_bom_nwp_data_xr(filename, **kwargs):
+    return xr.open_dataset(filename)
 
 
 def _import_bom_nwp_geodata_xr(

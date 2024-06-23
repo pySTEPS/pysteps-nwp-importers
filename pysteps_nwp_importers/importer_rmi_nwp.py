@@ -106,7 +106,7 @@ def import_rmi_nwp(filename, **kwargs):
             "products but it is not installed"
         )
 
-    ds = xr.open_dataset(filename, **kwargs)
+    ds = _import_rmi_nwp_data_xr(filename, **kwargs)
     metadata = _import_rmi_nwp_geodata_xr(ds, **kwargs)
 
     # rename varname_time (def: time) to t
@@ -139,11 +139,14 @@ def import_rmi_nwp(filename, **kwargs):
     return precipitation.values, quality, metadata
 
 
+def _import_rmi_nwp_data_xr(filename, **kwargs):
+    return xr.open_dataset(filename)
+
+
 def _import_rmi_nwp_geodata_xr(
     ds_in,
     **kwargs,
 ):
-
     varname = kwargs.get("varname", "precipitation")
     varname_time = kwargs.get("varname_time", "time")
     projdef = None
