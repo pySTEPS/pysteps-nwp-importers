@@ -124,7 +124,7 @@ def import_rmi_nwp(filename, **kwargs):
         print("Rainfall values are accumulated. Disaggregating by time step")
         accum_prcp = ds[varname]
         precipitation = accum_prcp - accum_prcp.shift({varname_time: 1})
-        precipitation = precipitation.dropna(varname_time, "all")
+        precipitation = precipitation.dropna(varname_time, how="all")
         # update/copy attributes
         precipitation.name = "precipitation"
         # copy attributes
@@ -140,27 +140,13 @@ def import_rmi_nwp(filename, **kwargs):
 
 
 def _import_rmi_nwp_data_xr(filename, **kwargs):
-
-    varname_time = kwargs.get("varname_time", "time")
-    chunks = kwargs.get("chunks", {varname_time: 1})
-
-    ds_rainfall = xr.open_mfdataset(
-        filename,
-        combine="nested",
-        concat_dim=varname_time,
-        chunks=chunks,
-        lock=False,
-        parallel=True,
-    )
-
-    return ds_rainfall
+    return xr.open_dataset(filename)
 
 
 def _import_rmi_nwp_geodata_xr(
     ds_in,
     **kwargs,
 ):
-
     varname = kwargs.get("varname", "precipitation")
     varname_time = kwargs.get("varname_time", "time")
     projdef = None
