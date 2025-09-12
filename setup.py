@@ -3,7 +3,13 @@ from setuptools import setup, find_packages
 with open("README.rst") as readme_file:
     readme = readme_file.read()
 
-requirements = ["numpy", "xarray", "dask", "netCDF4", "pysteps>=1.4,<2.0"]
+requirements = [
+    "numpy",
+    "xarray",
+    "dask",
+    "netCDF4",
+    "pysteps>=1.4,<2.0",
+]
 
 setup_requirements = ["pytest-runner"]
 
@@ -35,6 +41,7 @@ setup(
             "import_knmi_nwp=pysteps_nwp_importers.importer_knmi_nwp:import_knmi_nwp",
             "import_bom_nwp=pysteps_nwp_importers.importer_bom_nwp:import_bom_nwp",
             "import_rmi_nwp=pysteps_nwp_importers.importer_rmi_nwp:import_rmi_nwp",
+            "import_dwd_nwp=pysteps_nwp_importers.importer_dwd_nwp:import_dwd_nwp",
         ]
     },
     version="0.1",
