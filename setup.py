@@ -42,6 +42,7 @@ setup(
             "import_bom_nwp=pysteps_nwp_importers.importer_bom_nwp:import_bom_nwp",
             "import_rmi_nwp=pysteps_nwp_importers.importer_rmi_nwp:import_rmi_nwp",
             "import_dwd_nwp=pysteps_nwp_importers.importer_dwd_nwp:import_dwd_nwp",
+            "import_rhmss_nwp=pysteps_nwp_importers.importer_rhmss_nwp:import_rhmss_nwp",
         ]
     },
     version="0.1",

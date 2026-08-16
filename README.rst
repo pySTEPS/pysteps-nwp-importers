@@ -18,6 +18,7 @@ NWP rainfall forecast importer using pysteps utilities. This plugin currently pr
 * BoM NWP forecasts
 * RMI NWP forecasts
 * DWD NWP forecasts
+* RHMSS (Serbia) WRF-NMM and IFS GRIB1 forecasts (requires ``pygrib``)
 
 
 Installation
