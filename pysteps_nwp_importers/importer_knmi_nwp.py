@@ -1,62 +1,53 @@
 """
 pysteps_nwp_importers.importer_knmi_nwp
-====================
+=======================================
 
-Module to import the KNMI HARMONIE NWP forecasts. The output of this method is
-a numpy array containing forecast rainfall fields in mm/timestep and the
-metadata as dictionary.
+Module to import the KNMI HARMONIE NWP forecasts.
 
-The metadata contains the following key-value pairs:
+The importer returns an xarray dataset that follows the pysteps data model
+described in :py:mod:`pysteps.io.importers`. The forecast rainfall fields are
+stored in the data variable named by ``dataset.attrs["precip_var"]``, with
+dimensions (time, y, x). The metadata is stored as follows:
 
-.. tabularcolumns:: |p{2cm}|L|
+.. tabularcolumns:: |p{3cm}|L|
 
-+------------------+----------------------------------------------------------+
-|       Key        |                Value                                     |
-+==================+==========================================================+
-|   projection     | PROJ.4-compatible projection definition                  |
-+------------------+----------------------------------------------------------+
-|   x1             | x-coordinate of the lower-left corner of the data raster |
-+------------------+----------------------------------------------------------+
-|   y1             | y-coordinate of the lower-left corner of the data raster |
-+------------------+----------------------------------------------------------+
-|   x2             | x-coordinate of the upper-right corner of the data raster|
-+------------------+----------------------------------------------------------+
-|   y2             | y-coordinate of the upper-right corner of the data raster|
-+------------------+----------------------------------------------------------+
-|   xpixelsize     | grid resolution in x-direction                           |
-+------------------+----------------------------------------------------------+
-|   ypixelsize     | grid resolution in y-direction                           |
-+------------------+----------------------------------------------------------+
-|   cartesian_unit | the physical unit of the cartesian x- and y-coordinates: |
-|                  | e.g. 'm' or 'km'                                         |
-+------------------+----------------------------------------------------------+
-|   yorigin        | a string specifying the location of the first element in |
-|                  | the data raster w.r.t. y-axis:                           |
-|                  | 'upper' = upper border                                   |
-|                  | 'lower' = lower border                                   |
-+------------------+----------------------------------------------------------+
-|   institution    | name of the institution who provides the data            |
-+------------------+----------------------------------------------------------+
-|   unit           | the physical unit of the data: 'mm/h', 'mm' or 'dBZ'     |
-+------------------+----------------------------------------------------------+
-|   transform      | the transformation of the data: None, 'dB', 'Box-Cox' or |
-|                  | others                                                   |
-+------------------+----------------------------------------------------------+
-|   accutime       | the accumulation time in minutes of the data, float      |
-+------------------+----------------------------------------------------------+
-|   threshold      | the rain/no rain threshold with the same unit,           |
-|                  | transformation and accutime of the data.                 |
-+------------------+----------------------------------------------------------+
-|   zerovalue      | the value assigned to the no rain pixels with the same   |
-|                  | unit, transformation and accutime of the data.           |
-+------------------+----------------------------------------------------------+
++------------------------------+----------------------------------------------+
+|       Location               |                Value                         |
++==============================+==============================================+
+| ``attrs["projection"]``      | PROJ.4-compatible projection definition      |
++------------------------------+----------------------------------------------+
+| ``attrs["institution"]``     | name of the institution who provides the data|
++------------------------------+----------------------------------------------+
+| ``attrs["precip_var"]``      | name of the precipitation data variable      |
++------------------------------+----------------------------------------------+
+| precip_var ``units``         | the physical unit of the data: 'mm'          |
++------------------------------+----------------------------------------------+
+| precip_var ``accutime``      | the accumulation time in minutes of the data |
++------------------------------+----------------------------------------------+
+| precip_var ``threshold``     | the rain/no rain threshold with the same     |
+|                              | unit and accutime of the data                |
++------------------------------+----------------------------------------------+
+| precip_var ``zerovalue``     | the value assigned to the no rain pixels with|
+|                              | the same unit and accutime of the data       |
++------------------------------+----------------------------------------------+
+| x, y coordinates             | cell centres in ``units``, regularly spaced  |
+|                              | by ``stepsize``                              |
++------------------------------+----------------------------------------------+
+| time coordinate              | valid times, regularly spaced by ``stepsize``|
+|                              | (in seconds)                                 |
++------------------------------+----------------------------------------------+
 
 """
 
 import numpy as np
-
 import xarray as xr
 
+from pysteps_nwp_importers._utils import (
+    get_threshold_value,
+    get_timestep_seconds,
+    normalize_unit,
+    to_pysteps_dataset,
+)
 from pysteps_nwp_importers.exceptions import MissingOptionalDependency
 
 try:
@@ -83,16 +74,19 @@ def import_knmi_nwp(filename, **kwargs):
     filename: str
         Name of the file to import.
 
-    {extra_kwargs_doc}
+    Other Parameters
+    ----------------
+    varname: str, optional
+        Name of the precipitation variable in the file. Defaults to "P_fc".
+    varname_time: str, optional
+        Name of the time coordinate in the file. Defaults to "time".
 
     Returns
     -------
-    precipitation : array-like, float32
-        Precipitation field in mm/h. The dimensions are [time, rows, cols].
-    quality : 2D array or None
-        If no quality information is available, set to None.
-    metadata : dict
-        Associated metadata (pixel sizes, map projections, etc.).
+    dataset: xarray.Dataset
+        Dataset containing the forecast rainfall fields, with dimensions
+        (time, y, x), and the associated metadata, following the pysteps data
+        model described in :py:mod:`pysteps.io.importers`.
     """
 
     if not NETCDF4_IMPORTED:
@@ -107,32 +101,17 @@ def import_knmi_nwp(filename, **kwargs):
             "products but it is not installed"
         )
 
-    ds = _import_knmi_nwp_data_xr(filename)
-    metadata = _import_knmi_nwp_geodata_xr(ds, **kwargs)
-
-    # rename varname_time (def: time) to t
-    varname_time = kwargs.get("varname_time", "time")
-    ds = ds.rename({varname_time: "t"})
-    varname_time = "t"
-    times_nwp = ds["t"].values
-    metadata["time_stamps"] = times_nwp
-
-    # if data variable is named accum_prcp
-    # it is assumed that NWP rainfall data is accumulated
-    # so it needs to be disagregated by time step
     varname = kwargs.get("varname", "P_fc")
-    if varname == "P_fc":
-        precipitation = ds[varname]
-        # update/copy attributes
-        precipitation.name = "precipitation"
-        # update attributes
-        precipitation.attrs.update({"standard_name": "precipitation_amount"})
-    else:
-        precipitation = ds[varname]
+    varname_time = kwargs.get("varname_time", "time")
 
-    quality = None
+    with _import_knmi_nwp_data_xr(filename) as ds:
+        metadata = _import_knmi_nwp_geodata_xr(ds, **kwargs)
+        precip = ds[varname].transpose(varname_time, "y", "x").values
+        times = ds[varname_time].values
+        x = ds.x.values
+        y = ds.y.values
 
-    return precipitation.values, quality, metadata
+    return to_pysteps_dataset(precip, x, y, times, metadata)
 
 
 def _import_knmi_nwp_data_xr(filename, **kwargs):
@@ -148,75 +127,28 @@ def _import_knmi_nwp_geodata_xr(
     # Get the projection string
     projdef = ds_in.crs.proj4_params
 
-    # Get the accumulation period
-    time = ds_in[varname_time]
-    # Shift the array to calculate the time step
-    delta_time = time - time.shift({varname_time: 1})
-    # Assuming first valid delta_time is representative of all time steps
-    time_step = delta_time[1]
-    time_step = time_step.values.astype("timedelta64[m]").astype(int)
+    # Get the accumulation period (in minutes)
+    time_step = get_timestep_seconds(ds_in[varname_time].values) // 60
 
     # Get the units of precipitation
     units = None
     if "units" in ds_in[varname].attrs:
-        units = ds_in[varname].units
-        if units in ("kg m-2", "mm"):
-            units = "mm"
+        units = normalize_unit(ds_in[varname].units)
 
-    # Get spatial boundaries and pixelsize
-    xmin = ds_in.x.min().values
-    xmax = ds_in.x.max().values
-    ymin = ds_in.y.min().values
-    ymax = ds_in.y.max().values
-    xpixelsize = abs(ds_in.x[1] - ds_in.x[0])
-    ypixelsize = abs(ds_in.y[1] - ds_in.y[0])
-
-    # Add metadata needed by pySTEPS as attrs in rainfall variable
+    # Rainfall field of the first time step, used for the threshold and zerovalue
     da_rainfall = ds_in[varname].isel({varname_time: 0})
     # Set values below 0.0 to 0.0
     da_rainfall = da_rainfall.where(da_rainfall >= 0.0, 0.0)
 
     # Fill the metadata dictionary
     metadata = dict(
-        xpixelsize=xpixelsize.values,
-        ypixelsize=ypixelsize.values,
         cartesian_unit=ds_in.x.units,
         unit=units,
-        transform=None,
         zerovalue=np.nanmin(da_rainfall),
         institution=ds_in.attrs["institution"],
         projection=projdef,
-        yorigin="lower",
-        threshold=_get_threshold_value(da_rainfall.values),
-        x1=xmin,
-        x2=xmax,
-        y1=ymin,
-        y2=ymax,
+        threshold=get_threshold_value(da_rainfall.values),
         accutime=time_step,
     )
 
     return metadata
-
-
-def _get_threshold_value(precip):
-    """
-    Get the rain/no rain threshold with the same unit, transformation and
-    accutime of the data.
-    If all the values are NaNs, the returned value is `np.nan`.
-    Otherwise, np.min(precip[precip > precip.min()]) is returned.
-
-    Returns
-    -------
-    threshold: float
-    """
-    valid_mask = np.isfinite(precip)
-    if valid_mask.any():
-        _precip = precip[valid_mask]
-        min_precip = _precip.min()
-        above_min_mask = _precip > min_precip
-        if above_min_mask.any():
-            return np.min(_precip[above_min_mask])
-        else:
-            return min_precip
-    else:
-        return np.nan

@@ -38,19 +38,22 @@ jobs:
           generate-run-shell: false
           create-args: python=${{ matrix.python-version }}
 
-      - name: Pre-install pysteps (MacOS only)
-        if: matrix.os == 'macos-latest'
-        working-directory: ${{github.workspace}}
+      # pysteps>=2.0 is not available on PyPI yet, so it is installed from the
+      # main branch. It is installed in editable mode, since a regular install of
+      # the main branch currently lacks the pysteps subpackages.
+      - name: Install pysteps from the main branch
+        working-directory: ${{ runner.temp }}
         env:
-          CC: gcc-13
-          CXX: g++-13
-          CXX1X: g++-13
           HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
-          brew update-reset
-          brew update
-          gcc-13 --version || brew install gcc@13
-          pip install "pysteps>=1.4,<2.0"
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            brew update-reset
+            brew update
+            gcc-13 --version || brew install gcc@13
+            export CC=gcc-13 CXX=g++-13 CXX1X=g++-13
+          fi
+          git clone --depth 1 https://github.com/pySTEPS/pysteps.git
+          pip install -e ./pysteps
 
       - name: Install pysteps-nwp-importers
         working-directory: ${{github.workspace}}

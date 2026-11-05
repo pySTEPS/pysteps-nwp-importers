@@ -8,7 +8,7 @@ requirements = [
     "xarray",
     "dask",
     "netCDF4",
-    "pysteps>=1.4,<2.0",
+    "pysteps>=2.0",
 ]
 
 setup_requirements = ["pytest-runner"]
