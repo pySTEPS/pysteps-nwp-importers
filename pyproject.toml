@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "pysteps-nwp-importers"
-version = "0.1"
+version = "2.0.0-rc.1"
 description = "Pysteps plugin to import a variety of NWP rainfall forecasts"
 readme = "README.rst"
 license = "BSD-3-Clause"
@@ -52,9 +52,3 @@ docs = [
 module-root = ""
 # Test data downloaded by the tests
 source-exclude = ["pysteps_nwp_importers/tests/data"]
-
-[tool.uv.sources]
-# Temporary: the pysteps 2.0.0rc1 sdist on PyPI ships no Python modules.
-# Remove once a working pysteps 2 is on PyPI. Until then, uv projects that
-# depend on this plugin can't use their own pysteps (e.g. pysteps' docs).
-pysteps = { git = "https://github.com/pySTEPS/pysteps", branch = "main" }
