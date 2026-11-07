@@ -1,70 +1,58 @@
 """
 pysteps_nwp_importers.importer_dwd_nwp
-====================
+======================================
 
-Module to import the DWD ICON-RUC NWP forecasts. The output of this method
-is an xarray DataArray containing the desired precipitation related variable per
-timestep as well as the metadata as a dictionary.
+Module to import the DWD ICON-RUC NWP forecasts. The importer returns an xarray
+dataset with the desired precipitation related variable per ensemble member and
+time step, following the pysteps data model described in
+:py:mod:`pysteps.io.importers` as closely as possible.
 
-The description of the metadata has to divide in two categories since
+The structure of the dataset depends on the grid of the variable, since
 rainfall related variables are available only on an unstructured triangular
 grid whereas EMVORADO-simulated reflectivities are available on a rotated
-lat-lon grid.
+lat-lon grid:
 
-Thus, for rain rate, acc. precipitation, etc., the metadata contain the
-following key-value pairs:
+- On the unstructured grid (rain rate, acc. precipitation, etc.), the
+  precipitation variable has the dimensions (ens_number, time, cell). The
+  location of every grid cell is given by the ``lon`` and ``lat`` coordinates.
+  Such a dataset can be reprojected onto a regular grid (for instance the grid
+  of a radar composite) with :py:func:`unstructured2regular`, which returns a
+  regular pysteps dataset.
+- On the rotated lat-lon grid (EMVORADO synthetic reflectivities), the
+  precipitation variable has the dimensions (ens_number, time, y, x), with
+  regularly spaced x and y coordinates.
 
-.. tabularcolumns:: |p{2cm}|L|
+In both cases, the metadata is stored as follows:
 
-+------------------+----------------------------------------------------------+
-|       Key        |                Value                                     |
-+==================+==========================================================+
-|   projection     | PROJ.4-compatible projection definition                  |
-+------------------+----------------------------------------------------------+
-|   institution    | name of the institution who provides the data            |
-+------------------+----------------------------------------------------------+
-|   unit           | the physical unit of the data: 'mm/h', 'mm' or 'dBZ'     |
-+------------------+----------------------------------------------------------+
-|   transform      | the transformation of the data: None, 'dB', 'Box-Cox' or |
-|                  | others                                                   |
-+------------------+----------------------------------------------------------+
-|   accutime       | the accumulation time in minutes of the data, float      |
-+------------------+----------------------------------------------------------+
-|   threshold      | the rain/no rain threshold with the same unit,           |
-|                  | transformation and accutime of the data.                 |
-+------------------+----------------------------------------------------------+
-|   zerovalue      | the value assigned to the no rain pixels with the same   |
-|                  | unit, transformation and accutime of the data.           |
-+------------------+----------------------------------------------------------+
+.. tabularcolumns:: |p{3cm}|L|
 
-In case of EMVORADO synthetic reflectivities, the metadata contain additionally
-following entries:
-
-.. tabularcolumns:: |p{2cm}|L|
-
-+------------------+----------------------------------------------------------+
-|       Key        |                Value                                     |
-+==================+==========================================================+
-|   x1             | x-coordinate of the lower-left corner of the data raster |
-+------------------+----------------------------------------------------------+
-|   y1             | y-coordinate of the lower-left corner of the data raster |
-+------------------+----------------------------------------------------------+
-|   x2             | x-coordinate of the upper-right corner of the data raster|
-+------------------+----------------------------------------------------------+
-|   y2             | y-coordinate of the upper-right corner of the data raster|
-+------------------+----------------------------------------------------------+
-|   xpixelsize     | grid resolution in x-direction                           |
-+------------------+----------------------------------------------------------+
-|   ypixelsize     | grid resolution in y-direction                           |
-+------------------+----------------------------------------------------------+
-|   cartesian_unit | the physical unit of the cartesian x- and y-coordinates: |
-|                  | e.g. 'm' or 'km'                                         |
-+------------------+----------------------------------------------------------+
-|   yorigin        | a string specifying the location of the first element in |
-|                  | the data raster w.r.t. y-axis:                           |
-|                  | 'upper' = upper border                                   |
-|                  | 'lower' = lower border                                   |
-+------------------+----------------------------------------------------------+
++------------------------------+----------------------------------------------+
+|       Location               |                Value                         |
++==============================+==============================================+
+| ``attrs["projection"]``      | PROJ.4-compatible projection definition      |
++------------------------------+----------------------------------------------+
+| ``attrs["institution"]``     | name of the institution who provides the data|
++------------------------------+----------------------------------------------+
+| ``attrs["precip_var"]``      | name of the precipitation data variable      |
++------------------------------+----------------------------------------------+
+| precip_var ``units``         | the physical unit of the data: 'mm', 'mm/h'  |
+|                              | or 'dBZ'                                     |
++------------------------------+----------------------------------------------+
+| precip_var ``accutime``      | the accumulation time in minutes of the data |
+|                              | (only for accumulated variables)             |
++------------------------------+----------------------------------------------+
+| precip_var ``threshold``     | the rain/no rain threshold with the same     |
+|                              | unit and accutime of the data                |
++------------------------------+----------------------------------------------+
+| precip_var ``zerovalue``     | the value assigned to the no rain pixels with|
+|                              | the same unit and accutime of the data       |
++------------------------------+----------------------------------------------+
+| time coordinate              | valid times, regularly spaced by ``stepsize``|
+|                              | (in seconds)                                 |
++------------------------------+----------------------------------------------+
+| ens_number coordinate        | ensemble member (GRIB perturbationNumber, or |
+|                              | 0 for a deterministic forecast)              |
++------------------------------+----------------------------------------------+
 
 A comprehensive documentation of the data and the NWP model itself can be test
 found at: https://www.dwd.de/SharedDocs/downloads/DE/modelldokumentationen/nwv/
@@ -73,12 +61,19 @@ found at: https://www.dwd.de/SharedDocs/downloads/DE/modelldokumentationen/nwv/
 """
 
 import datetime
-import pyproj
-import numpy as np
-import xarray as xr
-import netCDF4 as nc
 
-from scipy.interpolate import griddata
+import numpy as np
+import pyproj
+import xarray as xr
+from xarray.indexes import NDPointIndex
+
+from pysteps_nwp_importers._utils import (
+    get_threshold_value,
+    get_timestep_seconds,
+    normalize_unit,
+    to_pysteps_dataset,
+    to_pysteps_unstructured_dataset,
+)
 
 try:
     import pygrib
@@ -86,13 +81,6 @@ try:
     PYGRIB_IMPORTED = True
 except ImportError:
     PYGRIB_IMPORTED = False
-
-try:
-    import pyproj
-
-    PYPROJ_IMPORTED = True
-except ImportError:
-    PYPROJ_IMPORTED = False
 
 from pysteps_nwp_importers.exceptions import MissingOptionalDependency
 
@@ -115,32 +103,23 @@ def import_dwd_nwp(filename, **kwargs):
         - PR_GSP = grid scale precipitation rate
         - TOT_PREC = accumulated precipitation since forecast initialization
     grid_file_path: str
-        Path to the forecast data associated grid file
+        Path to the forecast data associated grid file. Required for variables on
+        the unstructured grid.
 
     Returns
     -------
-    tuple
-        A tuple containing the following:
-        - precipitation : xarray.DataArray, float32
-            Either syn. reflectivity in dBZ with dimensions [time, rows, cols]
-            or rain rate or acc. prec in mm/h and mm, resptively. Dimensions of the
-            latter are [time, cols].
-        - quality : np.ndarray or None
-            If there's no quality information, it is set to None.
-        - metadata : dict
-            Associated metadata (pixel sizes, map projections, etc.; see doc of
-            pysteps_nwp_importers.importer_dwd_nwp).
+    dataset: xarray.Dataset
+        Dataset containing the precipitation forecasts and the associated metadata
+        (see the documentation of :py:mod:`pysteps_nwp_importers.importer_dwd_nwp`).
+        Precipitation rates in kg m**-2 s**-1 are converted into accumulations
+        per time step (in mm). Precipitation accumulated since the forecast
+        initialization (TOT_* variables) is disaggregated into accumulations per
+        time step, which drops the first time step.
     """
 
     if not PYGRIB_IMPORTED:
         raise MissingOptionalDependency(
             "pygrib package is required to import DWD NWP precipitation "
-            "forecasts but it is not installed"
-        )
-
-    if not PYPROJ_IMPORTED:
-        raise MissingOptionalDependency(
-            "pyproj package is required to import DWD NWP precipitation "
             "forecasts but it is not installed"
         )
 
@@ -173,207 +152,156 @@ def import_dwd_nwp(filename, **kwargs):
     assert len(reference_time) == 1, "File should contain only one forecast init."
 
     # Check whether the file contains an accumulated variable
-    if (
+    laccum = (
         grib_msgs[0].has_key("typeOfStatisticalProcessing")
         and grib_msgs[0]["typeOfStatisticalProcessing"] == 1
-    ):
-        laccum = True
-        valid_times = [_valid_time_helper(grib_msg) for grib_msg in grib_msgs]
-    else:
-        laccum = False
-        valid_times = [grib_msg.validDate for grib_msg in grib_msgs]
+    )
+    valid_times = [_get_valid_time(grib_msg, laccum) for grib_msg in grib_msgs]
 
     # Get all ensemble members that the dataset contains
-    ens_no = np.unique(
-        [
-            (
-                str(grib_msg["perturbationNumber"])
-                if grib_msg.has_key("perturbationNumber")
-                else "0"
-            )
-            for grib_msg in grib_msgs
-        ]
-    )
+    ens_numbers = np.unique([_get_ens_number(grib_msg) for grib_msg in grib_msgs])
 
     # Check whether each ensemble member has the same number of forecast times
     # Currently, only the number is compared and not the individual forecast times
     # themselves.
-    assert len(valid_times) / len(ens_no) == len(
+    assert len(valid_times) / len(ens_numbers) == len(
         np.unique(valid_times)
     ), "No. of time stamps not equal between ensemble members."
     valid_times = np.unique(valid_times)
 
-    # Get time steps and temporal resolution
-    time_steps = [
-        int((valid_time - reference_time[0]).total_seconds() / 60)
-        for valid_time in valid_times
-    ]
-    temp_res = np.diff(time_steps)[0]
+    # Get the temporal resolution
+    timestep = get_timestep_seconds(np.array(valid_times, dtype="datetime64[s]"))
+    temp_res = timestep // 60
 
-    # Get metadata and initialize DataArray
-    da_prec, metadata = _import_dwd_nwp_geodata(
-        grib_msgs[0], valid_times, ens_no, **kwargs
+    # Get the grid and the metadata of the variable
+    grid, metadata = _import_dwd_nwp_geodata(grib_msgs[0], **kwargs)
+
+    # Fill the data array with values of the grib messages by ensemble member and
+    # forecast time
+    ens_index = {ens_number: i for i, ens_number in enumerate(ens_numbers)}
+    time_index = {valid_time: i for i, valid_time in enumerate(valid_times)}
+    precip = np.full(
+        (len(ens_numbers), len(valid_times)) + grid["shape"], np.nan, dtype=float
     )
-
-    # Fill DataArray with values of the grib messages by ensemble member and forecast
-    # time
     for grib_msg in grib_msgs:
-        valid_time = _valid_time_helper(grib_msg) if laccum else grib_msg.validDate
-        ens_no = (
-            str(grib_msg["perturbationNumber"])
-            if grib_msg.has_key("perturbationNumber")
-            else "0"
-        )
-        da_prec.loc[dict(time=valid_time, ens_no=ens_no)] = grib_msg["values"]
-
-    # Finally, adjust the units if unit is kg m**-2 s**-1
-    if metadata["unit"] == "kg m**-2 s**-1":
-        da_prec = da_prec * 300
-        metadata["unit"] = "mm"
+        i_ens = ens_index[_get_ens_number(grib_msg)]
+        i_time = time_index[_get_valid_time(grib_msg, laccum)]
+        precip[i_ens, i_time] = grib_msg["values"]
 
     # The no data is set to 9999.0, change it to nan.
-    da_prec = da_prec.where(da_prec < 9999, np.nan)
+    precip[~(precip < 9999)] = np.nan
 
-    # Set forecast times additionally in the metadate
-    metadata["time_stamps"] = da_prec["time"].values
+    # Convert precipitation rates into accumulations per time step
+    lrate = metadata["unit"] == "kg m**-2 s**-1"
+    if lrate:
+        precip *= timestep
+        metadata["unit"] = "mm"
+
+    # Disaggregate variables that are accumulated since forecast initialization
+    if laccum and "TOT_" in varname:
+        # The field at time t becomes the accumulation over (t - 1, t].
+        precip = np.diff(precip, axis=1)
+        valid_times = valid_times[1:]
+
     # Set threshold and zerovalue of the dataset
     # For synthetic reflectivities no data and noch echo is set in the GRIB to -999 and
     # -99, respectively. To handle these in a more comfortable manner, it is set here
     # to -2 and 2. However, currently hard coded...
-    metadata["zerovalue"] = np.nanmin(da_prec) if varname != "DBZCMP_SIM" else -2.0
+    metadata["zerovalue"] = np.nanmin(precip) if varname != "DBZCMP_SIM" else -2.0
     metadata["threshold"] = (
-        _get_threshold_value(da_prec.to_numpy()) if varname != "DBZCMP_SIM" else 2.0
+        get_threshold_value(precip) if varname != "DBZCMP_SIM" else 2.0
     )
-    # Set the accumulation time equal to time steps if it is a variable that is
-    # accumulated since forecast initialization. Set it to the temporal resolution if
-    # it is a variable accumulated within two time steps. Otherwise set it to None.
-    if laccum and "TOT_" in varname:
-        metadata["accutime"] = time_steps
-    elif laccum:
-        metadata["accutime"] = temp_res
-    else:
-        metadata["accutime"] = None
+    # The accumulated variables (and the precipitation rates, which have been
+    # converted above) contain the accumulation per time step.
+    metadata["accutime"] = temp_res if (laccum or lrate) else None
 
-    # There is no information about quality. Therefore, for consistence reasons,
-    # quality is set to None.
-    quality = None
-
-    return da_prec, quality, metadata
+    valid_times = np.array(valid_times, dtype="datetime64[ns]")
+    if grid["type"] == "unstructured":
+        return to_pysteps_unstructured_dataset(
+            precip, grid["lon"], grid["lat"], valid_times, ens_numbers, metadata
+        )
+    return to_pysteps_dataset(
+        precip, grid["x"], grid["y"], valid_times, metadata, ens_number=ens_numbers
+    )
 
 
-def unstructured2regular(src_array, metadata_src, metadata_dst):
+def unstructured2regular(dataset_src, dataset_dst):
     """
-    Reproject unstructured data onto a regular grid on the assumption that
-    both src data and dst grid have the same projection.
+    Reproject NWP data on an unstructured grid onto the regular grid of another
+    dataset, using nearest neighbor interpolation.
 
     Parameters
     ----------
-    src_array: np.ndarray
-        Three-dimensional array of shape (t, n_ens, n_gridcells) containing a
-        time series of precipitation ensemble forecasts. These precipitation
-        fields will be reprojected.
-    metadata_src: dict
-        Metadata dictionary containing the projection, clon, clat, and ngridcells
-        and attributes of the src_array as described in the documentation of
-        :py:mod:`pysteps.io.importers`.
-    metadata_dst: dict
-        Metadata dictionary containing the projection, x- and ypixelsize, x1 and
-        y2 attributes of the dst_array.
+    dataset_src: xarray.Dataset
+        Dataset on an unstructured grid, as returned by :py:func:`import_dwd_nwp`.
+        Its precipitation variable has a "cell" dimension, along which the ``lon``
+        and ``lat`` coordinates give the location of the grid cells.
+    dataset_dst: xarray.Dataset
+        Dataset following the pysteps data model that defines the destination
+        grid, for instance a radar dataset. Its ``x`` and ``y`` coordinates and
+        its ``projection`` attribute are used. The x and y coordinates are assumed
+        to be expressed in the units of that projection.
 
     Returns
     -------
-    tuple
-        A tuple containing:
-        - r_rprj: np.ndarray
-            Four dimensional array of shape (t, n_ens, x, y) containing the
-            precipitation fields of src_array, but reprojected to the grid
-            of dst_array.
-        - metadata: dict
-            Dictionary containing geospatial metadat such as:
-            - 'projection' : PROJ.4 string defining the stereographic projection.
-            - 'xpixelsize', 'ypixelsize': Pixel size in meters.
-            - 'x1', 'y1': Carthesian coordinates of the lower-left corner.
-            - 'x2', 'y2': Carthesian coordinates of the upper-right corner.
-            - 'cartesian_unit': Unit of the coordinate system (meters).
+    dataset: xarray.Dataset
+        Dataset following the pysteps data model, with the precipitation variable
+        of `dataset_src` reprojected onto the grid of `dataset_dst`. The
+        precipitation variable has the dimensions of `dataset_src`, with the
+        "cell" dimension replaced by (y, x), e.g. (ens_number, time, y, x). The
+        spatial coordinates and the projection are those of `dataset_dst`.
+        Destination grid cells outside of the source domain get the value of the
+        nearest source grid cell.
     """
 
-    if not PYPROJ_IMPORTED:
-        raise MissingOptionalDependency(
-            "pyproj package is required to reproject DWD's NWP data"
-            "but it is not installed"
+    if "cell" not in dataset_src.dims:
+        raise ValueError(
+            "dataset_src should be on an unstructured grid with a 'cell' dimension"
         )
 
-    if not "clon" in metadata_src.keys():
-        raise KeyError("Center longitude (clon) is missing in metadata_src")
-    if not "clat" in metadata_src.keys():
-        raise KeyError("Center latitude (clat) is missing in metadata_src")
-
-    # Get number of grid cells
-    Nc = metadata_src["clon"].shape[0]
-    ic_in = np.arange(Nc)
-
-    # Get cartesian coordinates of destination grid
-    x_dst = np.arange(
-        np.float32(metadata_dst["x1"]),
-        np.float32(metadata_dst["x2"]),
-        metadata_dst["xpixelsize"],
+    # Location of the source grid cells in the destination projection, with a
+    # KD-tree index for nearest neighbour lookups
+    x_src, y_src = pyproj.Proj(dataset_dst.attrs["projection"])(
+        dataset_src["lon"].values, dataset_src["lat"].values
+    )
+    dataset = (
+        dataset_src.drop_vars(["lon", "lat"])
+        .assign_coords(x_src=("cell", x_src), y_src=("cell", y_src))
+        .set_xindex(["x_src", "y_src"], NDPointIndex)
     )
 
-    y_dst = np.arange(
-        np.float32(metadata_dst["y1"]),
-        np.float32(metadata_dst["y2"]),
-        metadata_dst["ypixelsize"],
+    # Select the nearest source grid cell of every destination grid cell
+    x_dst, y_dst = xr.broadcast(dataset_dst["x"], dataset_dst["y"])
+    dataset = dataset.sel(x_src=x_dst, y_src=y_dst, method="nearest")
+    dataset = dataset.drop_vars(["x_src", "y_src"]).transpose(..., "y", "x")
+
+    # Spatial coordinates (x, y, lon, lat and the grid mapping) and projection
+    # of the destination
+    dataset = dataset.assign_coords(
+        {
+            name: coord
+            for name, coord in dataset_dst.coords.items()
+            if set(coord.dims) <= {"y", "x"}
+        }
     )
+    precip_var = dataset.attrs["precip_var"]
+    precip_attrs = {
+        key: value
+        for key, value in dataset[precip_var].attrs.items()
+        if key != "grid_mapping"
+    }
+    dst_precip_var = dataset_dst.attrs.get("precip_var")
+    if (
+        dst_precip_var in dataset_dst
+        and "grid_mapping" in dataset_dst[dst_precip_var].attrs
+    ):
+        precip_attrs["grid_mapping"] = dataset_dst[dst_precip_var].attrs["grid_mapping"]
+    dataset[precip_var].attrs = precip_attrs
 
-    # Create destination grid
-    if metadata_dst["yorigin"] == "upper":
-        y_dst = y_dst[::-1]
-    xx_dst, yy_dst = np.meshgrid(x_dst, y_dst)
-    s_out = yy_dst.shape
-
-    # Extract the grid info of src_array assuming the same projection of src and dst
-    pr = pyproj.Proj(metadata_dst["projection"])
-    x_src, y_src = pr(metadata_src["clon"], metadata_src["clat"])
-
-    # Create array of x-y pairs for interpolation
-    P_in = np.stack((x_src, y_src)).T
-    P_out = np.array((xx_dst.flatten(), yy_dst.flatten())).T
-
-    # Nearest neighbor interpolation of x-y pairs
-    ic_out = (
-        griddata(P_in, ic_in.flatten(), P_out, method="nearest")
-        .reshape(s_out)
-        .astype(int)
-    )
-
-    # Apply interpolation on all time steps and ensemble members
-    r_rprj = np.array(
-        [
-            [src_array[i, j][ic_out] for j in range(src_array.shape[1])]
-            for i in range(src_array.shape[0])
-        ]
-    )
-
-    # Update the src metadata
-    metadata = metadata_src.copy()
-
-    for key in [
-        "projection",
-        "yorigin",
-        "xpixelsize",
-        "ypixelsize",
-        "x1",
-        "x2",
-        "y1",
-        "y2",
-        "cartesian_unit",
-    ]:
-        metadata[key] = metadata_dst[key]
-
-    return r_rprj, metadata
+    return dataset.assign_attrs(projection=dataset_dst.attrs["projection"])
 
 
-def _import_dwd_nwp_geodata(grib_msg, valid_times, ens_no, **kwargs):
+def _import_dwd_nwp_geodata(grib_msg, **kwargs):
     """
     Get all necessary metadata for further processing from data the GRIB file contains.
 
@@ -381,10 +309,6 @@ def _import_dwd_nwp_geodata(grib_msg, valid_times, ens_no, **kwargs):
     ----------
     grib_msg: Grib message object
         Single grib message from which metadata is to be extracted
-    valid_times: np.ndarray
-        1D array containing the list of included forecast times
-    ens_no: np.ndarray
-        1D array containing the list of included ensemble members
 
     Other parameters
     ----------------
@@ -395,19 +319,19 @@ def _import_dwd_nwp_geodata(grib_msg, valid_times, ens_no, **kwargs):
     -------
     tuple
         A tuple containing the following:
-        - da_prec : xarray.DataArray, float32
-            With geodata initialized DataArray
+        - grid : dict
+            The type of grid ("regular" or "unstructured"), the shape of a single
+            field, and the coordinates of the grid (x and y for a regular grid,
+            lon and lat for an unstructured grid).
         - metadata : dict
-            Associated metadata (pixel sizes, map projections, etc.; see doc of
+            Associated metadata (map projection, unit, etc.; see doc of
             pysteps_nwp_importers.importer_dwd_nwp).
     """
 
     # Set the unit of the desired variable
     units = None
     if "units" in grib_msg.keys():
-        units = grib_msg["units"]
-        if units in ("kg m-2", "mm"):
-            units = "mm"
+        units = normalize_unit(grib_msg["units"])
 
     # For the rotated lat/lon grid the projection definition is extracted from
     # pygrib.proj_params. For the unstructured grid, it is unfortunately hard coded,
@@ -420,128 +344,64 @@ def _import_dwd_nwp_geodata(grib_msg, valid_times, ens_no, **kwargs):
     else:
         proj_def = " ".join([f"+{key}={value} " for key, value in proj_params.items()])
 
-    # Initialize DataArray and get metadata for a rotated lat/lon grid
+    metadata = dict()
+
+    # Get the coordinates of a rotated lat/lon grid
     if grib_msg.has_key("Nj"):
-        # Set dimensions for DataArray
-        dims = ["time", "ens_no", "south_north", "west_east"]
         # Get geographical coordinates from grib message
         _, lat, lon = grib_msg.data()
         # Get projection and corresponding carthesian coordinates
         proj = pyproj.Proj(proj_params)
         x, y = proj(lon, lat)
-        x = x[0]
-        y = y[:, 0]
-        # Fill coordinate dictionary for DataArray
-        coords = {
-            "time": valid_times,
-            "ens_no": ens_no,
-            "west_east": np.arange(0, len(x), 1),
-            "south_north": np.arange(0, len(y), 1),
-            "x": ("west_east", np.arange(0, len(x), 1), {"units": "1"}),
-            "y": ("south_north", np.arange(0, len(y), 1), {"units": "1"}),
-            "projection_x_coordinate": ("west_east", x, {"units": "m"}),
-            "projection_y_coordinate": ("south_north", y, {"units": "m"}),
-            "longitude": (
-                ["south_north", "west_east"],
-                lon,
-                {"units": "degrees_north"},
-            ),
-            "latitude": (["south_north", "west_east"], lat, {"units": "degrees_east"}),
-        }
-        # Initiliaze DataArray
-        da_prec = xr.DataArray(
-            data=np.full(
-                (len(valid_times), len(ens_no), grib_msg["Nj"], grib_msg["Ni"]), np.nan
-            ),
-            dims=dims,
-            coords=coords,
+        grid = dict(
+            type="regular",
+            shape=(grib_msg["Nj"], grib_msg["Ni"]),
+            x=x[0],
+            y=y[:, 0],
         )
+        metadata["cartesian_unit"] = "m"
 
-        # Get corners of the carthesian grid and set orientation of y-axis
-        xmin = x.min()
-        xmax = x.max()
-        ymin = y.min()
-        ymax = y.max()
-        xpixelsize = abs(x[1] - x[0])
-        ypixelsize = abs(y[1] - y[0])
-        yorigin = "upper" if grib_msg["orientationOfTheGrid"] < 0 else "lower"
-
-        # Fill the metadata dictionary with horizontal resolution, length unit,
-        # orientation of y-axis as well as corner coordinates
-        metadata = dict(
-            xpixelsize=xpixelsize,
-            ypixelsize=ypixelsize,
-            cartesian_unit="m",
-            yorigin=yorigin,
-            x1=xmin,
-            x2=xmax,
-            y1=ymin,
-            y2=ymax,
-        )
-
-    # Initialize DataArray and get metadata for an unstructured triangular grid
+    # Get the coordinates of an unstructured triangular grid
     else:
-        # Set dimensions for DataArray
-        dims = ["time", "ens_no", "cell_no"]
         # Get geographical coordinates of triangle centers from grid file
-        grid_file_path = kwargs.get("grid_file_path", "")
+        grid_file_path = kwargs.get("grid_file_path")
+        if not grid_file_path:
+            raise ValueError(
+                "grid_file_path is required to import DWD NWP data on the "
+                "unstructured grid"
+            )
         clon, clat = _read_grid_file(grid_file_path)
-        # Fill coordinate dictionary for DataArray
-        coords = {
-            "time": valid_times,
-            "ens_no": ens_no,
-            "cell_no": np.arange(0, len(clat), 1),
-            "longitude": (["cell_no"], clon, {"units": "degrees_north"}),
-            "latitude": (["cell_no"], clat, {"units": "degrees_east"}),
-        }
-        # Initiliaze DataArray
-        da_prec = xr.DataArray(
-            data=np.full(
-                (len(valid_times), len(ens_no), grib_msg["numberOfDataPoints"]), np.nan
-            ),
-            dims=dims,
-            coords=coords,
+        if clon.size != grib_msg["numberOfDataPoints"]:
+            raise ValueError(
+                f"The grid file {grid_file_path} has {clon.size} cells, but the "
+                f"GRIB file has {grib_msg['numberOfDataPoints']} data points"
+            )
+        grid = dict(
+            type="unstructured",
+            shape=(grib_msg["numberOfDataPoints"],),
+            lon=clon,
+            lat=clat,
         )
-        metadata = dict()
 
     # Fill metadata dictionary with projection definition, unit of the precipitation
     # variable, transformation as well as the originating institution
     metadata["projection"] = proj_def
     metadata["unit"] = units
-    metadata["transform"] = None
     metadata["institution"] = grib_msg["centre"]
 
-    return da_prec, metadata
+    return grid, metadata
 
 
-def _get_threshold_value(precip):
-    """
-    Get the rain/no rain threshold with the same unit, transformation and
-    accutime of the data.
-    If all the values are NaNs, the returned value is `np.nan`.
-    Otherwise, np.min(precip[precip > precip.min()]) is returned.
+def _get_ens_number(grib_msg):
+    """Get the ensemble member of a GRIB message (0 for a deterministic run)."""
+    if grib_msg.has_key("perturbationNumber"):
+        return int(grib_msg["perturbationNumber"])
+    return 0
 
-    Parameters
-    ----------
-    precip: np.ndarray
-        2D array containing the precipitation field from which the threshold value
-        is to be extracted
 
-    Returns
-    -------
-    threshold: float
-    """
-    valid_mask = np.isfinite(precip)
-    if valid_mask.any():
-        _precip = precip[valid_mask]
-        min_precip = _precip.min()
-        above_min_mask = _precip > min_precip
-        if above_min_mask.any():
-            return np.min(_precip[above_min_mask])
-        else:
-            return min_precip
-    else:
-        return np.nan
+def _get_valid_time(grib_msg, laccum):
+    """Get the valid time of a GRIB message."""
+    return _valid_time_helper(grib_msg) if laccum else grib_msg.validDate
 
 
 def _valid_time_helper(grib_msg):
@@ -581,13 +441,8 @@ def _read_grid_file(grid_file_path):
 
     Returns
     -------
-    lat,lon: float
+    lon, lat: np.ndarray
+        Longitude and latitude (in degrees) of the triangle centers
     """
-    # Open grid file
-    ds = nc.Dataset(grid_file_path)
-
-    # Get lon/lat coordinates of triagle centers of the grid
-    clon = np.rad2deg(ds.variables["clon"][:])
-    clat = np.rad2deg(ds.variables["clat"][:])
-
-    return clon, clat
+    with xr.open_dataset(grid_file_path) as ds:
+        return np.rad2deg(ds["clon"].values), np.rad2deg(ds["clat"].values)
