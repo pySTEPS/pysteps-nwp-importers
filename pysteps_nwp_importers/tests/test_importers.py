@@ -98,7 +98,6 @@ EXPECTED = dict(
 
 
 def _import_dwd():
-    pytest.importorskip("pygrib")
     filename = str(DATA_DIR / "dwd/20250604_1600_PR_GSP_060_120.grib2")
     kwargs = {
         "varname": "lsprate",

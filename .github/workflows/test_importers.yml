@@ -33,7 +33,7 @@ jobs:
           echo "CXX=g++-13" >> "$GITHUB_ENV"
 
       - name: Install pysteps-nwp-importers
-        run: uv sync --frozen --all-extras
+        run: uv sync --frozen
 
       - name: Run tests
         run: uv run pytest --pyargs pysteps_nwp_importers

@@ -1,2 +1,0 @@
-class MissingOptionalDependency(Exception):
-    pass

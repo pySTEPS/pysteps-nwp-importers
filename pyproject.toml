@@ -19,6 +19,10 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "cfgrib",
+    # eccodes needs it outside Windows, but uv takes the dependencies of eccodes
+    # from its Windows wheel, which bundles the library.
+    "eccodeslib; sys_platform != 'win32'",
     "netCDF4",
     "numpy",
     "pyproj",
@@ -26,10 +30,6 @@ dependencies = [
     # NDPointIndex
     "xarray>=2025.7.1",
 ]
-
-[project.optional-dependencies]
-# Needed by the DWD importer. pygrib has no Windows wheels.
-pygrib = ["pygrib; sys_platform != 'win32'"]
 
 [project.entry-points."pysteps.plugins.importers"]
 import_knmi_nwp = "pysteps_nwp_importers.importer_knmi_nwp:import_knmi_nwp"

@@ -60,8 +60,6 @@ found at: https://www.dwd.de/SharedDocs/downloads/DE/modelldokumentationen/nwv/
 
 """
 
-import datetime
-
 import numpy as np
 import pyproj
 import xarray as xr
@@ -75,20 +73,17 @@ from pysteps_nwp_importers._utils import (
     to_pysteps_unstructured_dataset,
 )
 
-try:
-    import pygrib
-
-    PYGRIB_IMPORTED = True
-except ImportError:
-    PYGRIB_IMPORTED = False
-
-from pysteps_nwp_importers.exceptions import MissingOptionalDependency
+# GRIB doesn't define a projection for the unstructured grid. This one is used to
+# reproject it with unstructured2regular.
+UNSTRUCTURED_GRID_PROJECTION = (
+    "+a=6378137.0 +b=6356752.0 +proj=stere +lat_ts=60.0 +lat_0=90.0 +lon_0=10.0"
+)
 
 
 def import_dwd_nwp(filename, **kwargs):
     """
     Import a GRIB file containing DWD ICON-D2-RUC NWP precipitation forecasts using
-    pygrib and xarray.
+    cfgrib and xarray.
 
     Parameters
     ----------
@@ -100,8 +95,8 @@ def import_dwd_nwp(filename, **kwargs):
     varname: str
         GRIB short name of the desired variable (depends on the installed GRIB tables):
         - DBZCMP_SIM = EMVORADO synthetic reflectivities
-        - PR_GSP = grid scale precipitation rate
-        - TOT_PREC = accumulated precipitation since forecast initialization
+        - PR_GSP (lsprate) = grid scale precipitation rate
+        - TOT_PREC (tp) = accumulated precipitation since forecast initialization
     grid_file_path: str
         Path to the forecast data associated grid file. Required for variables on
         the unstructured grid.
@@ -112,116 +107,98 @@ def import_dwd_nwp(filename, **kwargs):
         Dataset containing the precipitation forecasts and the associated metadata
         (see the documentation of :py:mod:`pysteps_nwp_importers.importer_dwd_nwp`).
         Precipitation rates in kg m**-2 s**-1 are converted into accumulations
-        per time step (in mm). Precipitation accumulated since the forecast
-        initialization (TOT_* variables) is disaggregated into accumulations per
-        time step, which drops the first time step.
+        per time step (in mm). Accumulated variables, which ICON accumulates since
+        the forecast initialization, are disaggregated into accumulations per time
+        step, which drops the first time step.
     """
 
-    if not PYGRIB_IMPORTED:
-        raise MissingOptionalDependency(
-            "pygrib package is required to import DWD NWP precipitation "
-            "forecasts but it is not installed"
-        )
-
-    # Try to open file with pygrib
-    try:
-        grib_file = pygrib.open(filename)
-    except Exception as e:
-        raise IOError("File could not be opened, because of: " f"{e}")
-
-    # Read complete grib file
-    grib_msgs = grib_file.read()
-    grib_file.close()
-
-    # Check whether the file contains any processible precipitation variable
     varname = kwargs.get("varname", "DBZCMP_SIM")
-    data_varnames = np.unique([grib_msg["shortName"] for grib_msg in grib_msgs])
+    try:
+        ds = xr.open_dataset(
+            filename,
+            engine="cfgrib",
+            backend_kwargs=dict(
+                filter_by_keys={"shortName": varname},
+                # Don't write an index file next to the GRIB file
+                indexpath="",
+                read_keys=["radius"],
+                values_dtype=np.dtype("float64"),
+            ),
+        )
+    except Exception as e:
+        raise IOError(f"File could not be opened, because of: {e}")
 
-    # Raise error if file doesn't contain the desired variable
-    if not varname in data_varnames:
-        raise IOError("File does not contain the desired precipitation variable")
+    with ds:
+        if not ds.data_vars:
+            raise IOError("File does not contain the desired precipitation variable")
+        (precip,) = ds.data_vars.values()
+        precip = precip.load()
+        institution = ds.attrs["GRIB_centre"]
+    grib_attrs = precip.attrs
 
-    # Raise error if file contains more than one variable
-    assert (
-        len(data_varnames) == 1
-    ), "File should contain only one precipitation variable."
+    if precip["time"].ndim:
+        raise ValueError("File should contain only one forecast init.")
 
-    # Check the initialization time
-    reference_time = np.unique([grib_msg.analDate for grib_msg in grib_msgs])
-    # Raise error if file contains more than one forecast init
-    assert len(reference_time) == 1, "File should contain only one forecast init."
+    timestep = get_timestep_seconds(precip["valid_time"].values)
 
-    # Check whether the file contains an accumulated variable
-    laccum = (
-        grib_msgs[0].has_key("typeOfStatisticalProcessing")
-        and grib_msgs[0]["typeOfStatisticalProcessing"] == 1
+    # Dimensions (ensemble member, step, *grid), with member 0 for a deterministic
+    # forecast
+    if "number" not in precip.coords:
+        precip = precip.assign_coords(number=0)
+    if "number" not in precip.dims:
+        precip = precip.expand_dims("number")
+    precip = precip.transpose("number", "step", ...)
+
+    metadata = dict(
+        projection=_get_projection(grib_attrs),
+        unit=normalize_unit(grib_attrs.get("GRIB_units")),
+        institution=institution,
     )
-    valid_times = [_get_valid_time(grib_msg, laccum) for grib_msg in grib_msgs]
-
-    # Get all ensemble members that the dataset contains
-    ens_numbers = np.unique([_get_ens_number(grib_msg) for grib_msg in grib_msgs])
-
-    # Check whether each ensemble member has the same number of forecast times
-    # Currently, only the number is compared and not the individual forecast times
-    # themselves.
-    assert len(valid_times) / len(ens_numbers) == len(
-        np.unique(valid_times)
-    ), "No. of time stamps not equal between ensemble members."
-    valid_times = np.unique(valid_times)
-
-    # Get the temporal resolution
-    timestep = get_timestep_seconds(np.array(valid_times, dtype="datetime64[s]"))
-    temp_res = timestep // 60
-
-    # Get the grid and the metadata of the variable
-    grid, metadata = _import_dwd_nwp_geodata(grib_msgs[0], **kwargs)
-
-    # Fill the data array with values of the grib messages by ensemble member and
-    # forecast time
-    ens_index = {ens_number: i for i, ens_number in enumerate(ens_numbers)}
-    time_index = {valid_time: i for i, valid_time in enumerate(valid_times)}
-    precip = np.full(
-        (len(ens_numbers), len(valid_times)) + grid["shape"], np.nan, dtype=float
-    )
-    for grib_msg in grib_msgs:
-        i_ens = ens_index[_get_ens_number(grib_msg)]
-        i_time = time_index[_get_valid_time(grib_msg, laccum)]
-        precip[i_ens, i_time] = grib_msg["values"]
-
-    # The no data is set to 9999.0, change it to nan.
-    precip[~(precip < 9999)] = np.nan
 
     # Convert precipitation rates into accumulations per time step
     lrate = metadata["unit"] == "kg m**-2 s**-1"
     if lrate:
-        precip *= timestep
+        precip = precip * timestep
         metadata["unit"] = "mm"
 
-    # Disaggregate variables that are accumulated since forecast initialization
-    if laccum and "TOT_" in varname:
-        # The field at time t becomes the accumulation over (t - 1, t].
-        precip = np.diff(precip, axis=1)
-        valid_times = valid_times[1:]
+    # Disaggregate accumulated variables: the field at time t becomes the
+    # accumulation over (t - 1, t]. The GRIB packing can make it slightly negative.
+    laccum = grib_attrs["GRIB_stepType"] == "accum"
+    if laccum:
+        precip = precip.diff("step").clip(min=0.0)
+
+    values = precip.values
+    valid_times = precip["valid_time"].values
+    ens_numbers = precip["number"].values
 
     # Set threshold and zerovalue of the dataset
     # For synthetic reflectivities no data and noch echo is set in the GRIB to -999 and
     # -99, respectively. To handle these in a more comfortable manner, it is set here
     # to -2 and 2. However, currently hard coded...
-    metadata["zerovalue"] = np.nanmin(precip) if varname != "DBZCMP_SIM" else -2.0
+    metadata["zerovalue"] = np.nanmin(values) if varname != "DBZCMP_SIM" else -2.0
     metadata["threshold"] = (
-        get_threshold_value(precip) if varname != "DBZCMP_SIM" else 2.0
+        get_threshold_value(values) if varname != "DBZCMP_SIM" else 2.0
     )
     # The accumulated variables (and the precipitation rates, which have been
     # converted above) contain the accumulation per time step.
-    metadata["accutime"] = temp_res if (laccum or lrate) else None
+    metadata["accutime"] = timestep // 60 if (laccum or lrate) else None
 
-    valid_times = np.array(valid_times, dtype="datetime64[ns]")
-    if grid["type"] == "unstructured":
+    if grib_attrs["GRIB_gridType"] == "unstructured_grid":
+        lon, lat = _read_grid_file(kwargs.get("grid_file_path"), precip.sizes["values"])
         return to_pysteps_unstructured_dataset(
-            precip, grid["lon"], grid["lat"], valid_times, ens_numbers, metadata
+            values, lon, lat, valid_times, ens_numbers, metadata
         )
+
+    # Regular or rotated lat/lon grid
+    field = precip.isel(number=0, step=0)
+    lon, lat = (
+        field[name].broadcast_like(field).transpose(*field.dims).values
+        for name in ("longitude", "latitude")
+    )
+    x, y = pyproj.Proj(metadata["projection"])(lon, lat)
+    metadata["cartesian_unit"] = "m"
     return to_pysteps_dataset(
-        precip, grid["x"], grid["y"], valid_times, metadata, ens_number=ens_numbers
+        values, x[0], y[:, 0], valid_times, metadata, ens_number=ens_numbers
     )
 
 
@@ -301,135 +278,32 @@ def unstructured2regular(dataset_src, dataset_dst):
     return dataset.assign_attrs(projection=dataset_dst.attrs["projection"])
 
 
-def _import_dwd_nwp_geodata(grib_msg, **kwargs):
+def _get_projection(attrs):
     """
-    Get all necessary metadata for further processing from data the GRIB file contains.
+    Get the PROJ.4 definition of the grid of a variable opened with cfgrib.
 
-    Parameters
-    ----------
-    grib_msg: Grib message object
-        Single grib message from which metadata is to be extracted
-
-    Other parameters
-    ----------------
-    grid_file_path: str
-        Path to the forecast data associated grid file
-
-    Returns
-    -------
-    tuple
-        A tuple containing the following:
-        - grid : dict
-            The type of grid ("regular" or "unstructured"), the shape of a single
-            field, and the coordinates of the grid (x and y for a regular grid,
-            lon and lat for an unstructured grid).
-        - metadata : dict
-            Associated metadata (map projection, unit, etc.; see doc of
-            pysteps_nwp_importers.importer_dwd_nwp).
+    GRIB doesn't define a projection for the unstructured grid, so a hard coded one
+    is returned for it.
     """
-
-    # Set the unit of the desired variable
-    units = None
-    if "units" in grib_msg.keys():
-        units = normalize_unit(grib_msg["units"])
-
-    # For the rotated lat/lon grid the projection definition is extracted from
-    # pygrib.proj_params. For the unstructured grid, it is unfortunately hard coded,
-    # since proj_params does not support this kind of grids.
-    proj_params = grib_msg.projparams
-    if proj_params is None:
-        proj_def = (
-            "+a=6378137.0 +b=6356752.0 +proj=stere +lat_ts=60.0 +lat_0=90.0 +lon_0=10.0"
-        )
-    else:
-        proj_def = " ".join([f"+{key}={value} " for key, value in proj_params.items()])
-
-    metadata = dict()
-
-    # Get the coordinates of a rotated lat/lon grid
-    if grib_msg.has_key("Nj"):
-        # Get geographical coordinates from grib message
-        _, lat, lon = grib_msg.data()
-        # Get projection and corresponding carthesian coordinates
-        proj = pyproj.Proj(proj_params)
-        x, y = proj(lon, lat)
-        grid = dict(
-            type="regular",
-            shape=(grib_msg["Nj"], grib_msg["Ni"]),
-            x=x[0],
-            y=y[:, 0],
-        )
-        metadata["cartesian_unit"] = "m"
-
-    # Get the coordinates of an unstructured triangular grid
-    else:
-        # Get geographical coordinates of triangle centers from grid file
-        grid_file_path = kwargs.get("grid_file_path")
-        if not grid_file_path:
-            raise ValueError(
-                "grid_file_path is required to import DWD NWP data on the "
-                "unstructured grid"
-            )
-        clon, clat = _read_grid_file(grid_file_path)
-        if clon.size != grib_msg["numberOfDataPoints"]:
-            raise ValueError(
-                f"The grid file {grid_file_path} has {clon.size} cells, but the "
-                f"GRIB file has {grib_msg['numberOfDataPoints']} data points"
-            )
-        grid = dict(
-            type="unstructured",
-            shape=(grib_msg["numberOfDataPoints"],),
-            lon=clon,
-            lat=clat,
-        )
-
-    # Fill metadata dictionary with projection definition, unit of the precipitation
-    # variable, transformation as well as the originating institution
-    metadata["projection"] = proj_def
-    metadata["unit"] = units
-    metadata["institution"] = grib_msg["centre"]
-
-    return grid, metadata
-
-
-def _get_ens_number(grib_msg):
-    """Get the ensemble member of a GRIB message (0 for a deterministic run)."""
-    if grib_msg.has_key("perturbationNumber"):
-        return int(grib_msg["perturbationNumber"])
-    return 0
-
-
-def _get_valid_time(grib_msg, laccum):
-    """Get the valid time of a GRIB message."""
-    return _valid_time_helper(grib_msg) if laccum else grib_msg.validDate
-
-
-def _valid_time_helper(grib_msg):
-    """
-    Pygrib does not set the valid time correctly in case of total
-    precipitation. Therefore, this helper function is necessary
-
-    Parameters
-    ----------
-    grib_msg: Grib message object
-        GRIB message of the file to read
-
-    Returns
-    -------
-    validTime: datetime.datetime
-    """
-    validTime = datetime.datetime(
-        grib_msg["yearOfEndOfOverallTimeInterval"],
-        grib_msg["monthOfEndOfOverallTimeInterval"],
-        grib_msg["dayOfEndOfOverallTimeInterval"],
-        grib_msg["hourOfEndOfOverallTimeInterval"],
-        grib_msg["minuteOfEndOfOverallTimeInterval"],
-        grib_msg["secondOfEndOfOverallTimeInterval"],
+    grid_type = attrs["GRIB_gridType"]
+    if grid_type == "unstructured_grid":
+        return UNSTRUCTURED_GRID_PROJECTION
+    if grid_type not in ("regular_ll", "rotated_ll"):
+        raise ValueError(f"Unsupported GRIB grid type: {grid_type}")
+    if "GRIB_radius" not in attrs:
+        raise ValueError("Only grids on a spherical earth are supported")
+    earth = f"+a={attrs['GRIB_radius']} +b={attrs['GRIB_radius']}"
+    if grid_type == "regular_ll":
+        return f"{earth} +proj=longlat"
+    return (
+        f"{earth} +proj=ob_tran +o_proj=longlat"
+        f" +o_lat_p={-attrs['GRIB_latitudeOfSouthernPoleInDegrees']}"
+        f" +o_lon_p={attrs['GRIB_angleOfRotationInDegrees']}"
+        f" +lon_0={attrs['GRIB_longitudeOfSouthernPoleInDegrees']}"
     )
-    return validTime
 
 
-def _read_grid_file(grid_file_path):
+def _read_grid_file(grid_file_path, n_cells):
     """
     Reads the coordinates of the unstructured triangular grid
     from the grid file
@@ -438,11 +312,24 @@ def _read_grid_file(grid_file_path):
     ----------
     grid_file_path: str
         Path to the forecast data associated grid file
+    n_cells: int
+        Number of grid cells of the forecast data
 
     Returns
     -------
     lon, lat: np.ndarray
         Longitude and latitude (in degrees) of the triangle centers
     """
+    if not grid_file_path:
+        raise ValueError(
+            "grid_file_path is required to import DWD NWP data on the "
+            "unstructured grid"
+        )
     with xr.open_dataset(grid_file_path) as ds:
-        return np.rad2deg(ds["clon"].values), np.rad2deg(ds["clat"].values)
+        lon, lat = np.rad2deg(ds["clon"].values), np.rad2deg(ds["clat"].values)
+    if lon.size != n_cells:
+        raise ValueError(
+            f"The grid file {grid_file_path} has {lon.size} cells, but the "
+            f"GRIB file has {n_cells} data points"
+        )
+    return lon, lat
