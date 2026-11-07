@@ -19,12 +19,12 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "dask",
     "netCDF4",
     "numpy",
+    "pyproj",
     "pysteps>=2.0.0rc1",
-    "scipy",
-    "xarray",
+    # NDPointIndex
+    "xarray>=2025.7.1",
 ]
 
 [project.optional-dependencies]

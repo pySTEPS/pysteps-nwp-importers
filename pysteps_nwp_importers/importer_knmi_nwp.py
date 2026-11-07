@@ -39,30 +39,9 @@ dimensions (time, y, x). The metadata is stored as follows:
 
 """
 
-import numpy as np
 import xarray as xr
 
-from pysteps_nwp_importers._utils import (
-    get_threshold_value,
-    get_timestep_seconds,
-    normalize_unit,
-    to_pysteps_dataset,
-)
-from pysteps_nwp_importers.exceptions import MissingOptionalDependency
-
-try:
-    import netCDF4
-
-    NETCDF4_IMPORTED = True
-except ImportError:
-    NETCDF4_IMPORTED = False
-
-try:
-    import dask
-
-    DASK_IMPORTED = True
-except ImportError:
-    DASK_IMPORTED = False
+from pysteps_nwp_importers._utils import netcdf_to_pysteps_dataset
 
 
 def import_knmi_nwp(filename, **kwargs):
@@ -89,66 +68,12 @@ def import_knmi_nwp(filename, **kwargs):
         model described in :py:mod:`pysteps.io.importers`.
     """
 
-    if not NETCDF4_IMPORTED:
-        raise MissingOptionalDependency(
-            "netCDF4 package is required to import KNMI NWP regridded rainfall "
-            "products but it is not installed"
+    with xr.open_dataset(filename) as ds:
+        return netcdf_to_pysteps_dataset(
+            ds,
+            kwargs.get("varname", "P_fc"),
+            kwargs.get("varname_time", "time"),
+            projection=ds.crs.proj4_params,
+            institution=ds.attrs["institution"],
+            clip_negative=True,
         )
-
-    if not DASK_IMPORTED:
-        raise MissingOptionalDependency(
-            "dask package is required to import KMNI NWP regridded rainfall "
-            "products but it is not installed"
-        )
-
-    varname = kwargs.get("varname", "P_fc")
-    varname_time = kwargs.get("varname_time", "time")
-
-    with _import_knmi_nwp_data_xr(filename) as ds:
-        metadata = _import_knmi_nwp_geodata_xr(ds, **kwargs)
-        precip = ds[varname].transpose(varname_time, "y", "x").values
-        times = ds[varname_time].values
-        x = ds.x.values
-        y = ds.y.values
-
-    return to_pysteps_dataset(precip, x, y, times, metadata)
-
-
-def _import_knmi_nwp_data_xr(filename, **kwargs):
-    return xr.open_dataset(filename)
-
-
-def _import_knmi_nwp_geodata_xr(
-    ds_in,
-    **kwargs,
-):
-    varname = kwargs.get("varname", "P_fc")
-    varname_time = kwargs.get("varname_time", "time")
-    # Get the projection string
-    projdef = ds_in.crs.proj4_params
-
-    # Get the accumulation period (in minutes)
-    time_step = get_timestep_seconds(ds_in[varname_time].values) // 60
-
-    # Get the units of precipitation
-    units = None
-    if "units" in ds_in[varname].attrs:
-        units = normalize_unit(ds_in[varname].units)
-
-    # Rainfall field of the first time step, used for the threshold and zerovalue
-    da_rainfall = ds_in[varname].isel({varname_time: 0})
-    # Set values below 0.0 to 0.0
-    da_rainfall = da_rainfall.where(da_rainfall >= 0.0, 0.0)
-
-    # Fill the metadata dictionary
-    metadata = dict(
-        cartesian_unit=ds_in.x.units,
-        unit=units,
-        zerovalue=np.nanmin(da_rainfall),
-        institution=ds_in.attrs["institution"],
-        projection=projdef,
-        threshold=get_threshold_value(da_rainfall.values),
-        accutime=time_step,
-    )
-
-    return metadata

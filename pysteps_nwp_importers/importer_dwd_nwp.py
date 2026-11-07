@@ -62,13 +62,12 @@ found at: https://www.dwd.de/SharedDocs/downloads/DE/modelldokumentationen/nwv/
 
 import datetime
 
-import netCDF4 as nc
 import numpy as np
+import pyproj
 import xarray as xr
-from scipy.spatial import KDTree
+from xarray.indexes import NDPointIndex
 
 from pysteps_nwp_importers._utils import (
-    disaggregate_accumulation,
     get_threshold_value,
     get_timestep_seconds,
     normalize_unit,
@@ -82,13 +81,6 @@ try:
     PYGRIB_IMPORTED = True
 except ImportError:
     PYGRIB_IMPORTED = False
-
-try:
-    import pyproj
-
-    PYPROJ_IMPORTED = True
-except ImportError:
-    PYPROJ_IMPORTED = False
 
 from pysteps_nwp_importers.exceptions import MissingOptionalDependency
 
@@ -128,12 +120,6 @@ def import_dwd_nwp(filename, **kwargs):
     if not PYGRIB_IMPORTED:
         raise MissingOptionalDependency(
             "pygrib package is required to import DWD NWP precipitation "
-            "forecasts but it is not installed"
-        )
-
-    if not PYPROJ_IMPORTED:
-        raise MissingOptionalDependency(
-            "pyproj package is required to import DWD NWP precipitation "
             "forecasts but it is not installed"
         )
 
@@ -213,9 +199,9 @@ def import_dwd_nwp(filename, **kwargs):
 
     # Disaggregate variables that are accumulated since forecast initialization
     if laccum and "TOT_" in varname:
-        precip, valid_times = disaggregate_accumulation(
-            precip, valid_times, time_axis=1
-        )
+        # The field at time t becomes the accumulation over (t - 1, t].
+        precip = np.diff(precip, axis=1)
+        valid_times = valid_times[1:]
 
     # Set threshold and zerovalue of the dataset
     # For synthetic reflectivities no data and noch echo is set in the GRIB to -999 and
@@ -268,42 +254,41 @@ def unstructured2regular(dataset_src, dataset_dst):
         nearest source grid cell.
     """
 
-    if not PYPROJ_IMPORTED:
-        raise MissingOptionalDependency(
-            "pyproj package is required to reproject DWD's NWP data"
-            "but it is not installed"
-        )
-
-    if not "cell" in dataset_src.dims:
+    if "cell" not in dataset_src.dims:
         raise ValueError(
             "dataset_src should be on an unstructured grid with a 'cell' dimension"
         )
-    if not "lon" in dataset_src.coords:
-        raise KeyError("Longitude (lon) of the cells is missing in dataset_src")
-    if not "lat" in dataset_src.coords:
-        raise KeyError("Latitude (lat) of the cells is missing in dataset_src")
 
-    # Get cartesian coordinates of destination grid
-    xx_dst, yy_dst = np.meshgrid(dataset_dst["x"].values, dataset_dst["y"].values)
-
-    # Get the location of the source grid cells in the destination projection
-    pr = pyproj.Proj(dataset_dst.attrs["projection"])
-    x_src, y_src = pr(dataset_src["lon"].values, dataset_src["lat"].values)
-
-    # Nearest neighbor interpolation of x-y pairs
-    _, ic_out = KDTree(np.column_stack((x_src, y_src))).query(
-        np.column_stack((xx_dst.ravel(), yy_dst.ravel()))
+    # Location of the source grid cells in the destination projection, with a
+    # KD-tree index for nearest neighbour lookups
+    x_src, y_src = pyproj.Proj(dataset_dst.attrs["projection"])(
+        dataset_src["lon"].values, dataset_src["lat"].values
     )
-    ic_out = ic_out.reshape(xx_dst.shape)
+    dataset = (
+        dataset_src.drop_vars(["lon", "lat"])
+        .assign_coords(x_src=("cell", x_src), y_src=("cell", y_src))
+        .set_xindex(["x_src", "y_src"], NDPointIndex)
+    )
 
-    # Apply interpolation on all time steps and ensemble members
-    precip_var = dataset_src.attrs["precip_var"]
-    da_src = dataset_src[precip_var].transpose(..., "cell")
-    dims = [dim for dim in da_src.dims if dim != "cell"] + ["y", "x"]
-    precip_rprj = da_src.values[..., ic_out]
+    # Select the nearest source grid cell of every destination grid cell
+    x_dst, y_dst = xr.broadcast(dataset_dst["x"], dataset_dst["y"])
+    dataset = dataset.sel(x_src=x_dst, y_src=y_dst, method="nearest")
+    dataset = dataset.drop_vars(["x_src", "y_src"]).transpose(..., "y", "x")
 
+    # Spatial coordinates (x, y, lon, lat and the grid mapping) and projection
+    # of the destination
+    dataset = dataset.assign_coords(
+        {
+            name: coord
+            for name, coord in dataset_dst.coords.items()
+            if set(coord.dims) <= {"y", "x"}
+        }
+    )
+    precip_var = dataset.attrs["precip_var"]
     precip_attrs = {
-        key: value for key, value in da_src.attrs.items() if key != "grid_mapping"
+        key: value
+        for key, value in dataset[precip_var].attrs.items()
+        if key != "grid_mapping"
     }
     dst_precip_var = dataset_dst.attrs.get("precip_var")
     if (
@@ -311,25 +296,9 @@ def unstructured2regular(dataset_src, dataset_dst):
         and "grid_mapping" in dataset_dst[dst_precip_var].attrs
     ):
         precip_attrs["grid_mapping"] = dataset_dst[dst_precip_var].attrs["grid_mapping"]
+    dataset[precip_var].attrs = precip_attrs
 
-    # Non-spatial coordinates (time, ens_number) of the source and spatial
-    # coordinates (x, y, lon, lat and the grid mapping) of the destination
-    coords = {
-        name: coord
-        for name, coord in dataset_src.coords.items()
-        if not "cell" in coord.dims
-    }
-    for name, coord in dataset_dst.coords.items():
-        if coord.dims and set(coord.dims) <= {"y", "x"}:
-            coords[name] = coord
-        elif not coord.dims and "grid_mapping_name" in coord.attrs:
-            coords[name] = coord
-
-    return xr.Dataset(
-        data_vars={precip_var: (dims, precip_rprj, precip_attrs)},
-        coords=coords,
-        attrs={**dataset_src.attrs, "projection": dataset_dst.attrs["projection"]},
-    )
+    return dataset.assign_attrs(projection=dataset_dst.attrs["projection"])
 
 
 def _import_dwd_nwp_geodata(grib_msg, **kwargs):
@@ -475,10 +444,5 @@ def _read_grid_file(grid_file_path):
     lon, lat: np.ndarray
         Longitude and latitude (in degrees) of the triangle centers
     """
-    # Open grid file
-    with nc.Dataset(grid_file_path) as ds:
-        # Get lon/lat coordinates of triagle centers of the grid
-        clon = np.rad2deg(np.ma.getdata(ds.variables["clon"][:]))
-        clat = np.rad2deg(np.ma.getdata(ds.variables["clat"][:]))
-
-    return clon, clat
+    with xr.open_dataset(grid_file_path) as ds:
+        return np.rad2deg(ds["clon"].values), np.rad2deg(ds["clat"].values)

@@ -39,31 +39,9 @@ dimensions (time, y, x). The metadata is stored as follows:
 
 """
 
-import numpy as np
 import xarray as xr
 
-from pysteps_nwp_importers._utils import (
-    disaggregate_accumulation,
-    get_threshold_value,
-    get_timestep_seconds,
-    normalize_unit,
-    to_pysteps_dataset,
-)
-from pysteps_nwp_importers.exceptions import MissingOptionalDependency
-
-try:
-    import netCDF4
-
-    NETCDF4_IMPORTED = True
-except ImportError:
-    NETCDF4_IMPORTED = False
-
-try:
-    import dask
-
-    DASK_IMPORTED = True
-except ImportError:
-    DASK_IMPORTED = False
+from pysteps_nwp_importers._utils import netcdf_to_pysteps_dataset
 
 
 def import_bom_nwp(filename, **kwargs):
@@ -94,92 +72,26 @@ def import_bom_nwp(filename, **kwargs):
         model described in :py:mod:`pysteps.io.importers`.
     """
 
-    if not NETCDF4_IMPORTED:
-        raise MissingOptionalDependency(
-            "netCDF4 package is required to import BoM NWP regridded rainfall "
-            "products but it is not installed"
+    varname = kwargs.get("varname", "accum_prcp")
+    with xr.open_dataset(filename) as ds:
+        return netcdf_to_pysteps_dataset(
+            ds,
+            varname,
+            kwargs.get("varname_time", "time"),
+            projection=_get_projection(ds),
+            institution="Commonwealth of Australia, Bureau of Meteorology",
+            accumulated=varname == "accum_prcp",
         )
 
-    if not DASK_IMPORTED:
-        raise MissingOptionalDependency(
-            "dask package is required to import BoM NWP regridded rainfall "
-            "products but it is not installed"
-        )
 
-    varname = kwargs.get("varname", "accum_prcp")
-    varname_time = kwargs.get("varname_time", "time")
-
-    with _import_bom_nwp_data_xr(filename) as ds:
-        metadata = _import_bom_nwp_geodata_xr(ds, **kwargs)
-        precip = ds[varname].transpose(varname_time, "y", "x").values
-        times = ds[varname_time].values
-        x = ds.x.values
-        y = ds.y.values
-
-    # if data variable is named accum_prcp
-    # it is assumed that NWP rainfall data is accumulated
-    # so it needs to be disagregated by time step
-    if varname == "accum_prcp":
-        print("Rainfall values are accumulated. Disaggregating by time step")
-        precip, times = disaggregate_accumulation(precip, times)
-
-    return to_pysteps_dataset(precip, x, y, times, metadata)
-
-
-def _import_bom_nwp_data_xr(filename, **kwargs):
-    return xr.open_dataset(filename)
-
-
-def _import_bom_nwp_geodata_xr(
-    ds_in,
-    **kwargs,
-):
-    varname = kwargs.get("varname", "accum_prcp")
-    varname_time = kwargs.get("varname_time", "time")
-
-    # extract useful information
-    # projection
-    projdef = None
-    if "proj" in ds_in:
-        projection = ds_in.proj
-        if projection.grid_mapping_name == "albers_conical_equal_area":
-            projdef = "+proj=aea "
-            lon_0 = projection.longitude_of_central_meridian
-            projdef += f" +lon_0={lon_0:.3f}"
-            lat_0 = projection.latitude_of_projection_origin
-            projdef += f" +lat_0={lat_0:.3f}"
-            standard_parallel = projection.standard_parallel
-            projdef += f" +lat_1={standard_parallel[0]:.3f}"
-            projdef += f" +lat_2={standard_parallel[1]:.3f}"
-
-    # get the accumulation period (in minutes)
-    time_step = get_timestep_seconds(ds_in[varname_time].values) // 60
-
-    # get the units of precipitation
-    units = None
-    if "units" in ds_in[varname].attrs:
-        units = normalize_unit(ds_in[varname].units)
-
-    # move to meters if coordiantes in kilometers
-    if "units" in ds_in.x.attrs:
-        if ds_in.x.units == "km":
-            ds_in["x"] = ds_in.x * 1000.0
-            ds_in.x.attrs.update({"units": "m"})
-            ds_in["y"] = ds_in.y * 1000.0
-            ds_in.y.attrs.update({"units": "m"})
-
-    # Rainfall field of the first time step, used for the threshold and zerovalue
-    da_rainfall = ds_in[varname].isel({varname_time: 0})
-
-    # Fill the metadata dictionary
-    metadata = dict(
-        cartesian_unit=ds_in.x.units,
-        unit=units,
-        zerovalue=np.nanmin(da_rainfall),
-        institution="Commonwealth of Australia, Bureau of Meteorology",
-        projection=projdef,
-        threshold=get_threshold_value(da_rainfall.values),
-        accutime=time_step,
+def _get_projection(ds):
+    """Get the PROJ.4 definition of the Albers equal area grid of a BoM file."""
+    if "proj" not in ds or ds.proj.grid_mapping_name != "albers_conical_equal_area":
+        return None
+    proj = ds.proj
+    lat_1, lat_2 = proj.standard_parallel
+    return (
+        f"+proj=aea  +lon_0={proj.longitude_of_central_meridian:.3f}"
+        f" +lat_0={proj.latitude_of_projection_origin:.3f}"
+        f" +lat_1={lat_1:.3f} +lat_2={lat_2:.3f}"
     )
-
-    return metadata

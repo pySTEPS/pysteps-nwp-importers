@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 
 from pysteps_nwp_importers._utils import (
-    disaggregate_accumulation,
     get_timestep_seconds,
     to_pysteps_dataset,
 )
@@ -41,13 +40,6 @@ def test_get_timestep_seconds():
 def test_get_timestep_seconds_requires_regular_times(times):
     with pytest.raises(ValueError):
         get_timestep_seconds(times)
-
-
-def test_disaggregate_accumulation():
-    accumulated = np.array([[1.0, 2.0], [1.5, 2.0], [3.0, 4.0]])
-    precip, times = disaggregate_accumulation(accumulated, TIMES)
-    np.testing.assert_array_equal(precip, [[0.5, 0.0], [1.5, 2.0]])
-    np.testing.assert_array_equal(times, TIMES[1:])
 
 
 @pytest.mark.parametrize("y_descending", [True, False])

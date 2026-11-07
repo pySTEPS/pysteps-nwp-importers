@@ -79,15 +79,74 @@ def get_timestep_seconds(times):
     return int(steps[0] / np.timedelta64(1, "s"))
 
 
-def disaggregate_accumulation(precip, times, time_axis=0):
+def netcdf_to_pysteps_dataset(
+    ds,
+    varname,
+    varname_time,
+    projection,
+    institution,
+    accumulated=False,
+    clip_negative=False,
+):
     """
-    Convert precipitation accumulated since the forecast start into
-    accumulations per time step.
+    Convert the precipitation variable of a NetCDF dataset on a regular grid
+    into a pysteps dataset.
 
-    The field at time t becomes the accumulation over (t - 1, t]. The first
-    time step has no predecessor and is dropped.
+    Parameters
+    ----------
+    ds: xarray.Dataset
+        Dataset with the precipitation variable and its x, y and time
+        coordinates. x and y coordinates in km are converted into m.
+    varname, varname_time: str
+        Names of the precipitation variable and of the time coordinate.
+    projection: str
+        PROJ.4 definition of the grid.
+    institution: str
+        Name of the institution that provides the data.
+    accumulated: bool
+        If True, the precipitation is accumulated since the forecast start. It
+        is then disaggregated into accumulations per time step, which drops
+        the first time step.
+    clip_negative: bool
+        If True, negative values are set to 0 before the threshold and the
+        zerovalue are derived.
+
+    Returns
+    -------
+    dataset: xarray.Dataset
+        Dataset following the pysteps data model, with dimensions (time, y, x).
     """
-    return np.diff(precip, axis=time_axis), np.asarray(times)[1:]
+    precip = ds[varname].transpose(varname_time, "y", "x")
+
+    # The threshold and the zerovalue are derived from the first time step.
+    first = precip.isel({varname_time: 0}).values
+    if clip_negative:
+        first = np.where(first >= 0.0, first, 0.0)
+
+    x, y = ds["x"], ds["y"]
+    if x.attrs.get("units") == "km":
+        x, y = x * 1000.0, y * 1000.0
+        cartesian_unit = "m"
+    else:
+        cartesian_unit = x.attrs["units"]
+
+    metadata = dict(
+        projection=projection,
+        institution=institution,
+        unit=normalize_unit(precip.attrs.get("units")),
+        cartesian_unit=cartesian_unit,
+        accutime=get_timestep_seconds(precip[varname_time].values) // 60,
+        zerovalue=np.nanmin(first),
+        threshold=get_threshold_value(first),
+    )
+
+    if accumulated:
+        # The field at time t becomes the accumulation over (t - 1, t].
+        precip = precip.diff(varname_time)
+
+    return to_pysteps_dataset(
+        precip.values, x.values, y.values, precip[varname_time].values, metadata
+    )
 
 
 def time_coordinate(times, timestep):
