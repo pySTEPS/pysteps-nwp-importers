@@ -18,51 +18,22 @@ jobs:
         python-version: ["3.11", "3.13"]
       max-parallel: 6
 
-    defaults:
-      run:
-        shell: bash -l {0}
-
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install mamba and create environment
-        uses: mamba-org/setup-micromamba@v1
-        with:
-          # https://github.com/mamba-org/setup-micromamba/issues/225
-          micromamba-version: 1.5.10-0
-          environment-file: ci/ci_test_env.yml
-          environment-name: test_environment
-          generate-run-shell: false
-          create-args: python=${{ matrix.python-version }}
-
-      # pysteps>=2.0 is not available on PyPI yet, so it is installed from the
-      # main branch. It is installed in editable mode, since a regular install of
-      # the main branch currently lacks the pysteps subpackages.
-      - name: Install pysteps from the main branch
-        working-directory: ${{ runner.temp }}
-        env:
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
+      # pysteps is built from source and needs an OpenMP-capable compiler.
+      - name: Install gcc (macOS)
+        if: runner.os == 'macOS'
         run: |
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            brew update-reset
-            brew update
-            gcc-13 --version || brew install gcc@13
-            export CC=gcc-13 CXX=g++-13 CXX1X=g++-13
-          fi
-          git clone --depth 1 https://github.com/pySTEPS/pysteps.git
-          pip install -e ./pysteps
+          gcc-13 --version || brew install gcc@13
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
 
       - name: Install pysteps-nwp-importers
-        working-directory: ${{github.workspace}}
-        run: pip install .
-
-      - name: Check imports
-        run: |
-          python --version
-          python -c "import pysteps_nwp_importers"
+        run: uv sync --frozen --all-extras
 
       - name: Run tests
-        run: pytest --pyargs pysteps_nwp_importers
+        run: uv run pytest --pyargs pysteps_nwp_importers

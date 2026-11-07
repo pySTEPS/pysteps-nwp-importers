@@ -64,15 +64,24 @@ pip by running in a terminal::
 
     pip install git+https://github.com/pySTEPS/pysteps-nwp-importers
 
+The DWD importer also needs pygrib, which is installed with the ``pygrib`` extra::
+
+    pip install "pysteps-nwp-importers[pygrib] @ git+https://github.com/pySTEPS/pysteps-nwp-importers"
+
 Test the plugin
 ===============
 
 This plugin comes with a tester, which can also be used to test whether the plugin is correctly hooked up to pysteps.
 
-Install pytest and run the tests with::
+The development environment is managed with uv_. In a clone of this repository,
+install the plugin with its dependencies and run the tests with::
 
-	pip install pytest
-	pytest -v --tb=line
+    uv sync --all-extras
+    uv run pytest -v --tb=line
+
+The tests download their data from pysteps-data on the first run.
+
+.. _uv: https://docs.astral.sh/uv/
 
 Credits
 =======

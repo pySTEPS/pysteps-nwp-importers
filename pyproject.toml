@@ -1,0 +1,60 @@
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "pysteps-nwp-importers"
+version = "0.1"
+description = "Pysteps plugin to import a variety of NWP rainfall forecasts"
+readme = "README.rst"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "pySTEPS developers" }]
+keywords = ["pysteps_nwp_importers", "pysteps", "plugin", "importer"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "dask",
+    "netCDF4",
+    "numpy",
+    "pysteps>=2.0.0rc1",
+    "scipy",
+    "xarray",
+]
+
+[project.optional-dependencies]
+# Needed by the DWD importer. pygrib has no Windows wheels.
+pygrib = ["pygrib; sys_platform != 'win32'"]
+
+[project.entry-points."pysteps.plugins.importers"]
+import_knmi_nwp = "pysteps_nwp_importers.importer_knmi_nwp:import_knmi_nwp"
+import_bom_nwp = "pysteps_nwp_importers.importer_bom_nwp:import_bom_nwp"
+import_rmi_nwp = "pysteps_nwp_importers.importer_rmi_nwp:import_rmi_nwp"
+import_dwd_nwp = "pysteps_nwp_importers.importer_dwd_nwp:import_dwd_nwp"
+
+[dependency-groups]
+dev = [
+    "pre-commit",
+    "pytest",
+]
+docs = [
+    "numpydoc",
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+
+[tool.uv.build-backend]
+module-root = ""
+# Test data downloaded by the tests
+source-exclude = ["pysteps_nwp_importers/tests/data"]
+
+[tool.uv.sources]
+# Temporary: the pysteps 2.0.0rc1 sdist on PyPI ships no Python modules.
+# Remove once a working pysteps 2 is on PyPI. Until then, uv projects that
+# depend on this plugin can't use their own pysteps (e.g. pysteps' docs).
+pysteps = { git = "https://github.com/pySTEPS/pysteps", branch = "main" }
