@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "pysteps-nwp-importers"
-version = "2.0.0-rc.1"
+version = "2.0.0rc1"
 description = "Pysteps plugin to import a variety of NWP rainfall forecasts"
 readme = "README.rst"
 license = "BSD-3-Clause"
@@ -17,12 +17,12 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11.5"
 dependencies = [
     "netCDF4",
     "numpy",
     "pyproj",
-    "pysteps>=2.0.0rc1",
+    "pysteps>=2.0.0rc2",
     # NDPointIndex
     "xarray>=2025.7.1",
 ]

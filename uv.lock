@@ -1,6 +1,6 @@
 version = 1
-revision = 3
-requires-python = ">=3.11"
+revision = 5
+requires-python = ">=3.11.5"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
@@ -1598,8 +1598,8 @@ wheels = [
 
 [[package]]
 name = "pysteps"
-version = "2.0.0rc1"
-source = { git = "https://github.com/pySTEPS/pysteps?branch=main#ec6b476a78872068af52f2372afa2f30d9029516" }
+version = "2.0.0rc2"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsmin" },
     { name = "jsonschema" },
@@ -1616,10 +1616,11 @@ dependencies = [
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "xarray" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/04/41e204e0628c7a8837137fde7fa4e1b329c9aa4b9fc4a9465a09a79ad880/pysteps-2.0.0rc2.tar.gz", hash = "sha256:4cbe17e90f1e61c15f5f1e77aed65a5f4877d75256b9970953b0e25c9d26f975", size = 714452, upload-time = "2026-11-16T20:58:58.903Z" }
 
 [[package]]
 name = "pysteps-nwp-importers"
-version = "0.1"
+version = "2.0.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "netcdf4" },
@@ -1655,7 +1656,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "pygrib", marker = "sys_platform != 'win32' and extra == 'pygrib'" },
     { name = "pyproj" },
-    { name = "pysteps", git = "https://github.com/pySTEPS/pysteps?branch=main" },
+    { name = "pysteps", specifier = ">=2.0.0rc2" },
     { name = "xarray", specifier = ">=2025.7.1" },
 ]
 provides-extras = ["pygrib"]
